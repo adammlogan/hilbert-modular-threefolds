@@ -1,0 +1,36 @@
+AttachSpec("~/magmalib/hilbertmodularforms/spec");
+load "minimal.mag";
+// functions to calculate defects correctly
+// we assume that the unit group is the full group of totally positive units,
+// leaving the correction to be made elsewhere if necessary
+
+// user functions:
+// new_defects  calculate the first n defects for the cusp associated to an ideal
+function new_defects(nf,bd: id := false)
+  mo := MaximalOrder(nf);
+  di := Different(mo);
+  idi := di^-1;
+  if id cmpeq false then id := 1*mo; end if;
+  dual := (id*di)^-1;
+
+  trace_to_bd := [PositiveElementsOfTrace(idi,i): i in [1..bd]];
+  ids_to_bd := [{@i*mo: i in t@}: t in trace_to_bd];
+  int_ids_to_bd := [{@i*di: i in ids@}: ids in ids_to_bd];
+  // so we need to count the totally positive elements of dual that
+  // divide one of these with the quotient being in id.
+  // Let x be in dual.  If tr xy < q with y in id then (xy) is in ids_to_bd,
+  // so (x dual^-1) (y id^-1) is integral, since it is x y di.
+  // And in fact this divides the corresponding entry of int_ids_to_bd.
+  // So we look for divisors D of the elements of int_ids_to_bd such that
+  // D*dual^-1 is narrowly principal.
+  int_divs_to_bd := [{@x: x in Divisors(ideal<mo|Basis(i)>), i in ints@}: ints in int_ids_to_bd];
+  divs_to_bd := [{@x*dual: x in ints@}: ints in int_divs_to_bd];
+  cumul := [&join divs_to_bd[1..i]: i in [0..bd]];
+  tp_cumul := [{@x: x in c|IsNarrowlyPrincipal(x)@}: c in cumul];
+  // don't forget 0
+  cts := [1+#i: i in tp_cumul];
+  return cts, tp_cumul;
+end function;
+
+
+    

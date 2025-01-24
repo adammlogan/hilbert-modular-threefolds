@@ -1,0 +1,230 @@
+load "defect-new.mag";
+load "grundman-chi.mag";
+
+// trying to translate the dimension formula from the many-author LUCANT paper
+// user functions:
+// lucant_hilb   compute the Hilbert series of the cusp forms for a given field and level
+
+
+// the point of this is to find elements of an ideal whose real embeddings
+// lie within certain specified bounds.
+function box_elements(F,aa,lbs,ubs)
+  error if exists{i: i in lbs cat ubs|not ISA(Type(i),FldReElt)}, "bounds must be coercible to real numbers";
+  basis := TraceBasis(1*aa);
+  ZF := Integers(F);
+  places := RealPlaces(F);
+  // the images of the basis elements, as sequences of real numbers
+  basis_ims := [[Evaluate(i,p): p in places]: i in basis];
+
+  mbi := Transpose(Matrix(basis_ims));
+  R := Universe(basis_ims[1]);
+  d := Degree(F);
+  L := LPProcess(R,d);
+  // we create a box from the given upper and lower bounds
+  AddConstraints(L,mbi,Transpose(Matrix([lbs])): Rel := "ge");
+  AddConstraints(L,mbi,Transpose(Matrix([ubs])): Rel := "le");
+  for i in [1..d] do
+    SetIntegerSolutionVariables(L,[i],true);
+    SetLowerBound(L,i,R!-1000);
+  end for;
+
+  intbds := [];
+  // this is lazy and should be replaced by a divide-and-conquer algorithm
+  // but maybe it's good enough for now.
+  // For each variable we find the smallest and largest possible values
+  // for that variable.
+  for i in [1..d] do
+    SetObjectiveFunction(L,Matrix([[j eq i select R!1 else R!0: j in [1..d]]]));
+    SetMaximiseFunction(L,false);
+    sol,val := Solution(L); assert val eq 0;
+    lb := sol[1,i];
+    SetMaximiseFunction(L,true);
+    sol,val := Solution(L); assert val eq 0;
+    ub := sol[1,i];
+    Append(~intbds,[Ceiling(lb-10^-10),Floor(ub+10^-10)]);
+  end for;
+  // return int_sols(L,R,intbds);
+
+  // Now we just consider the Cartesian product of all these intervals and
+  // check which points give us solutions.
+  box_elts := [];
+  for i in CartesianProduct([{i[1]..i[2]}: i in intbds]) do
+    id_elt := &+[i[j]*basis[j]: j in [1..d]];
+    if forall{i: i in [1..d]|r ge lbs[i] and r le ubs[i] where r is Evaluate(id_elt,places[i])} then Append(~box_elts,id_elt); end if;
+  end for;
+
+  return box_elts;
+end function;
+
+// Calculate the D-invariant from the LUCANT paper (formula 5.2.2)
+function make_d(tu)
+  nf := NumberField(Parent(1/tu[1]));
+  pol := Polynomial([nf|tu[1],-tu[2],1]);
+  rel := ext<nf|pol>;
+  rts := [rel.1,tu[2]-rel.1];
+  coefs := [nf|&+[rts[1]^i*rts[2]^(k-i): i in [0..k]]: k in [0..50]];
+  nm_coefs := [0] cat [IsOdd(i) select 0 else Norm(coefs[i-1]): i in [1..50]];
+  pol := Polynomial(nm_coefs);
+  q := quo<Parent(pol)|(Parent(pol).1)^(Degree(pol)+1)>;
+  _,rat := RationalReconstruction(q!pol);
+  return rat;
+end function;
+
+// calculate the index of the units in a smaller order in those of a larger one
+function unit_index(s,r)
+  us,usto := UnitGroup(s);
+  ur,urto := UnitGroup(r);
+  ur_s := [(urto(ur.i))@@usto: i in [1..Ngens(ur)]];
+  ans := #(us/sub<us|ur_s>);
+  return ans;
+end function;
+
+// find roots of a polynomial to a given precision in a completion
+function roots_to_d(pol,cr,d)
+  u := UniformizingElement(cr);
+  q := quo<cr|u^(2*d)>;
+  rcf,torcf := ResidueClassField(cr);
+  res := [i@@torcf: i in rcf];
+  rts := [[cr!0]]; // root mod p^0
+  for i in [1..d] do
+    lifts := [cr!r+u^(i-1)*s: r in rts[i], s in res];
+    Append(~rts,[x: x in lifts|Valuation(Evaluate(pol,x)) ge i]);
+  end for;
+  return rts;
+end function;
+
+// function to find a local generator of a quadratic extension
+// The point is that the discriminant of an element is the square of
+// the difference between it and its conjugate, so we just have to
+// make sure that that difference is in as small a power of the appropriate
+// ideal as possible.
+function newer_local_gen(s,r,p)
+  im_quad_ext := NumberField(Parent(1/s.1));
+  quad_ext_max_ord := MaximalOrder(im_quad_ext);
+  nf := NumberField(Parent(1/r.1));
+  // find the automorphism over the base
+  aut_im := rep{x: x in Automorphisms(im_quad_ext)|x(nf.1) eq nf.1 and x(im_quad_ext.1) ne im_quad_ext.1};
+  Zn := RSpace(Z,Degree(im_quad_ext));
+  s_bas := [Eltseq(quad_ext_max_ord!i): i in Basis(s)];
+  s_sub := sub<Zn|s_bas>;
+  // this is the map that takes x to x - sigma(x).
+  diff_map := hom<s_sub->Zn|[Eltseq(quad_ext_max_ord!Eltseq(i)-quad_ext_max_ord!aut_im(quad_ext_max_ord!Eltseq(i))): i in Basis(s_sub)]>;
+  im_diff := Image(diff_map);
+  // we want something that is in as small a power of the ideals as possible.
+  // for each prime above the one where we want a local generator, we ...
+  p_up := [x[1]: x in Factorization(ideal<quad_ext_max_ord|Basis(p)>)];
+  // ... find the largest power of the ideal that is contained in the image
+  // of the difference map ...
+  max_k := [rep{i: i in [1..1000]|im_diff ne im_diff meet sub<Zn|[Eltseq(quad_ext_max_ord!b): b in Basis(p^i)]>}: p in p_up];
+  power_subs := [sub<Zn|[Eltseq(quad_ext_max_ord!b): b in Basis(p_up[i]^max_k[i])]> meet im_diff: i in [1..#p_up]];
+  // ... create the quotient maps for each of those ideals ...
+  qmaps := [<q,toq> where q,toq is quo<im_diff|p>: p in power_subs];
+  qall,toqall := quo<im_diff|&meet power_subs>;
+  ag := AbelianGroup(Moduli(qall));
+  // .. and find an element that is not in the kernel of any of them.
+  myelt := random{(qall!Eltseq(x))@@toqall: x in ag|forall{m: m in qmaps|m[2]((qall!Eltseq(x))@@toqall) ne 0}};
+  elt_s := quad_ext_max_ord!Eltseq(myelt@@diff_map);
+  assert elt_s in s;
+  return elt_s;
+end function;
+  
+// calculate the m_p(S,O,O^*)
+// (straightforward translation of the description in chapter 30 of Voight's
+// book on quaternion algebras)
+function msoo(s,r,p,e)
+  loc_gen := newer_local_gen(s,r,p);
+  im_quad_ext := NumberField(Parent(1/s.1));
+  nf := NumberField(Parent(1/r.1));
+  relf := RelativeField(nf,im_quad_ext);
+  srel := Order([relf!i: i in Basis(s)]);
+  sdisc := Discriminant(srel);
+  f_gamma := PolynomialRing(r)!MinimalPolynomial(relf!loc_gen);
+  assert Valuation(Discriminant(f_gamma),p) eq Valuation(sdisc,p);
+  cr,crto := Completion(r,p);
+  unif := UniformizingElement(cr);
+  mode := quo<cr|unif^e>;
+  d_gamma := Discriminant(f_gamma);
+  f_gamma_cr := Polynomial([crto(i): i in Coefficients(f_gamma)]);
+  rts := roots_to_d(f_gamma_cr,cr,e+1);
+  if Valuation(d_gamma,p) eq 0 then
+    inv := #rts[e+1];
+  else
+    inv := #rts[e+1]+#{mode!i: i in rts[e+2]};
+  end if;
+  return inv;
+end function;
+  
+// calculate the C(u,t) (Basic Numerical Invariants, 5.1.3)
+cut := func<ord,mo,id|1/2*picard_number(ord)/unit_index(ord,mo)*&*[Z|msoo(ord,mo,p[1],p[2]): p in Factorization(id)]>;
+
+function tu_pairs(nf)
+  // now we list the t, u such that t^2 - 4u is totally negative,
+  // up to multiplying u by v^2 and t by v.
+  // We need representatives mod squares.
+  mo := MaximalOrder(nf);
+  tot_pos := tpu_basis(nf);
+  ug,ugto := UnitGroup(nf);
+  tp := [i@@ugto: i in tot_pos];
+  s1 := sub<ug|tp>;
+  s2 := sub<ug|[2*i: i in Generators(ug)]>;
+  // these are representatives of totally positive units mod squares.
+  q,toq := quo<s1|s2>;
+  // here we go.
+  tps := [ugto(i@@toq): i in q];
+  // Now we need the pairs for which t^2 - 4u is totally negative.
+  rp := RealPlaces(nf);
+  pairs := [[t,u]: u in box_elements(nf,1*mo,[-2*Sqrt(Evaluate(t,r)): r in rp],[2*Sqrt(Evaluate(t,r)): r in rp]), t in tps];
+  // dump (x +- 1)^2
+  pairs := [x: x in pairs|IsIrreducible(Polynomial([x[1],x[2],1]))];
+  assert forall{x: x in pairs|[x[1],-x[2]] in pairs};
+  assert forall{x: x in tps|[x,0] in pairs};
+  assert forall{x: x in pairs|IsTotallyPositive(4*x[1]-x[2]^2)};
+  return pairs;
+end function;
+
+function lucant_hilb(nf,id: sl := false)
+  if sl then "caution: the weight-2 term may be inaccurate"; end if;
+  nft := FunctionField(nf);
+  mo := MaximalOrder(nf);
+  hplus := NarrowClassNumber(nf);
+  h := ClassNumber(nf);
+  n := Degree(nf);
+  // should test that this looks reasonable
+  z := Roots(MinimalPolynomial(Evaluate(LSeries(nf),-1),1),Q)[1,1];
+
+  // horrible ad-hoc, need to check with John (it doesn't seem right)
+  // but in the SL_2 case we have alternative methods and don't need this
+  A := (sl select hplus-1 else (-1)^(n-1)*hplus);
+  B := 1/(2^(n-1))*AbsoluteValue(z)*h*Norm(id)*&*[Q|1+Norm(p[1])^-1: p in Factorization(id)];
+  // in fact this is the power series whose q^i coefficient is i^n if
+  // i is odd and 0 if n is even
+  btimes := nft.1/(1-nft.1^2);
+  for i in [1..n] do
+    btimes := nft.1*Derivative(btimes);
+  end for;
+
+  absum := A*nft.1^2+B*nft.1*btimes;
+  
+  pairs := tu_pairs(nf);
+  if sl then pairs := [x: x in pairs|x[1] eq 1]; end if;
+  
+  cdterms := [];
+  // we now calculate the sum in the second line of Basic Numerical Invariants,
+  // (5.1.2)
+  for pair in pairs do
+    dpair := make_d(pair);
+    im_quad_ext := ext<nf|Polynomial([pair[1],pair[2],1])>;
+    absim := AbsoluteField(im_quad_ext);
+    rt := absim!im_quad_ext.1;
+    ord := Order([i*rt^j: i in Basis(mo), j in [0,1]]);
+    ords := orders_containing(ord);
+    Append(~cdterms,dpair*&+[cut(i,mo,id): i in ords]);
+  end for;
+
+  cdsum := &+cdterms;
+  // OK, this (-1)^n term is arbitrary, but it appears to work ....
+  // John agrees that there may be something wrong here.
+  dimsum := absum+(-1)^n*cdsum;
+  return dimsum,absum,cdsum;
+end function;
+

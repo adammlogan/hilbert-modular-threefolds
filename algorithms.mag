@@ -1,0 +1,57 @@
+// The functions in this file execute the numbered algorithms in the paper.
+// Example to illustrate all of them:
+
+/*
+load "loadall.mag";
+load "algorithms.mag";
+nf := nfs[3];
+id := 1*MaximalOrder(nf);
+
+defects_to_5 := alg55(nf,id,5);
+trace_minimal := alg412(nf);
+reducers := alg416(nf,id);
+polyhedra := make_cusp_polyhedra(nf,id);
+cusp_volume := alg511(nf,id);
+assert cusp_volume eq Discriminant(MaximalOrder(nf))*alg36(polyhedra);
+integer_points := &join [alg33(Polyhedron([5*v: v in Vertices(i)])): i in polyhedra];
+*/
+
+function alg33(polyhedron: strict := false)
+  x := intpts(polyhedron: strict := strict);
+  return x;
+end function;
+
+function alg36(polyhedra)
+  x := union_decompose(polyhedra);
+  return x;
+end function;
+
+// note: only for the full group of units, since that is all we use
+function alg412(nf)
+  tpu,unit_list,bk,units_bk := unit_data(nf);
+  mp := min_poly(units_bk);
+  return mp;
+end function;
+
+function alg416(nf,id)
+  tpu,unit_list,bk,units_bk := unit_data(nf);
+  reducers := list_reducers(nf,units_bk,bk: id := id);
+  return reducers;
+end function;
+
+// function to produce the region T for an ideal
+// the output of this can be given to alg36
+function make_cusp_polyhedra(nf,id)
+  tpu,unit_list,bk,units_bk := unit_data(nf);
+  reducers := list_reducers(nf,units_bk,bk: id := id);
+  polyhedra := make_polyhedra(units_bk cat unit_list,Include(reducers,Minimum(id)));
+  return polyhedra;
+end function;
+  
+function alg55(nf,id,bd)
+  return x where x is new_defects(nf,bd: id := id);
+end function;
+
+function alg511(nf,id)
+  return cusp_vol(nf,id);
+end function;

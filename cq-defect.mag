@@ -1,0 +1,52 @@
+load "polyhedra.mag";
+// defects of cyclic quotient singularities, cf. van der Geer II.6, III.3
+
+// user functions:
+// defect_q  compute the qth defect of a quotient singularity
+function lattice(ai,n)
+  d := #Eltseq(ai);
+  error if exists{c: c in ai|GCD(c,n) ne 1}, "singularity is not isolated";
+  ai := [Z|x*(Integers(n)!ai[d])^-1: x in Eltseq(ai)];
+  Zd := RSpace(Z,d);
+  Z1 := RSpace(Z,1);
+  Zmodn := quo<Z1|n*Z1.1>;
+  // construct the lattice of elements that pair to an integer with the
+  // type of the singularity (van der Geer's M)
+  ker := Kernel(hom<Zd->Zmodn|[ai[i]*Z1.1: i in [1..d]]>);
+  kerlat := LatticeWithBasis(Matrix(Basis(ker)));
+  assert Determinant(kerlat) eq n^2; // i.e., index n
+  // construct its dual, the lattice generated over Z^n by the type
+  dual := LatticeWithBasis(ChangeRing(Matrix(Basis(Dual(kerlat))),Q)*1/n);
+  bdpts1 := [[(x*i mod n)/n: i in Eltseq(ai)]: x in [1..n-1]];
+  bdpts2 := [Eltseq(i): i in Basis(Zd)];
+  orthant := &meet [HalfspaceToPolyhedron(i,1): i in bdpts2];
+  // these are the polyhedra whose union is used to calculate the exact and
+  // asymptotic defects of the elliptic singularity
+  pols := [orthant meet HalfspaceToPolyhedron([-i: i in Eltseq(p)],-1): p in bdpts1|&+Eltseq(p) lt 1];
+
+  // and the qth defect should be the number of integral points of the union
+  // of these scaled by q, with the boundary condition that you are allowed 
+  // to lie on the coordinate faces scaled by q but not on any other
+  // boundary components
+  return pols,kerlat,bdpts1;
+end function;
+
+// qth defect, where decpols is the third return value of union_decompose
+function defect_q(decpols,kerlat,bdpts,q)
+  scs := [Polytope([q*i: i in Vertices(dp)]): dp in decpols];
+  allpts := &join [Points(i): i in scs];
+  // I suppose it would be faster to change coordinates to the kernel lattice,
+  // but how would it ever matter?
+  goodpts := [x: x in allpts|IsCoercible(kerlat,Eltseq(x)) and exists{c: c in bdpts|&+[x.i*c[i]: i in [1..#Eltseq(x)]] lt q}];
+  return #goodpts;
+end function;
+
+// test that my code matches van der Geer in the case of dimension 2
+function test(a,b,n)
+  qs := [Z|Integers(n)!i: i in [a/b,b/a]];
+  hj := HirzebruchJungContinuedFraction(n/qs[1]);
+  goal := 1/2*&+[x-2: x in hj] - (2*n-&+qs-2)/(2*n);
+  pols,kerlat := lattice([a,b],n);
+  check := union_decompose(pols)/n;
+  return goal eq check, goal, check;
+end function;

@@ -1,0 +1,106 @@
+// function to calculate the holomorphic Euler characteristic of the
+// Hilbert modular threefold for a cubic number field, cf. Grundman,
+// Nonrational Hilbert modular threefolds, lemma 3
+// (note that this is 1-p_g by her conventions)
+// user functions:
+// chi       determine the Euler characteristic by Grundman's method
+
+load "fields.mag";
+function chi(nf)
+  error if [a,b] ne [3,0] where a,b is Signature(nf), "function only applies to real cubic fields";
+  d := Discriminant(MaximalOrder(nf));
+  error if d le 81, "we know what's going on for Q(zeta_7)^+ and Q(zeta_9)^+";
+  ls := LSeries(nf);
+  LSetPrecision(ls,10);
+  z := Evaluate(ls,-1);
+  mp := MinimalPolynomial(z,1); zv := Roots(mp,Q)[1,1];
+
+  // now determine a_2
+  nfi := Compositum(nf,QuadraticField(-1));
+  rfi := ext<nf|Polynomial([1,0,1])>;
+  cl2 := ClassNumber(nfi)/ClassNumber(nf);
+  if Valuation(d,2) gt 0 then
+    p2 := rep{Ideal(x[1]): x in Decomposition(nf,2)|x[2] gt 1};
+    dp2 := Decomposition(MaximalOrder(rfi),p2);
+    c2 := (#dp2 eq 2 select 16 else (dp2[1,2] eq 2 select 12 else 40));
+  else
+    c2 := 4;
+  end if;
+
+  // now determine a3
+  nfw := Compositum(nf,QuadraticField(-3));
+  rfw := ext<nf|Polynomial([1,1,1])>;
+  cl3 := ClassNumber(nfw)/ClassNumber(nf);
+  if Valuation(d,3) gt 0 then
+    p3 := rep{Ideal(x[1]): x in Decomposition(nf,3)|x[2] gt 1};
+    dp3 := Decomposition(MaximalOrder(rfw),p3);
+    c3 := (#dp3 eq 2 select 12 else (dp3[1,2] eq 2 select 16 else 20));
+  else
+    c3 := 4;
+  end if;
+
+  // this is Grundman's formula
+  ch := 1/8*(2*zv+c2*cl2/2+2*c3*cl3/3);
+  return d, zv, cl2, cl3, c2*cl2, c3*cl3, ch; // to make the order match the table
+end function;
+
+// This doesn't always agree with Magma.  However, Eran pointed out that the
+// problem is that Grundman is computing for SL_2 and Magma is computing
+// for the larger group GL_2^+.
+
+function Q_order(ord,nf)
+  nford := NumberField(ord);
+  auts := [x: x in Automorphisms(nford)|x(nf.1) eq nf.1];
+  assert #auts eq 2;
+  ug,ugto := UnitGroup(ord);
+  ugnf,ugnfto := UnitGroup(nf);
+  nms := [nf|&*[a(ugto(ug.i)): a in auts]: i in [1..Ngens(ug)]];
+  subnm := sub<ugnf|[i@@ugnfto: i in nms]>;
+  subsq := sub<subnm|[2*ugnf.i: i in [1..Ngens(ugnf)]]>;
+  ind := #(subnm/subsq);
+  return ind;
+end function;
+
+// Picard number of a not necessarily maximal order
+// Formula taken from Neukirch, Algebraic Number Theory, thm. I.12.12
+function picard_number(ord6)
+  nf6 := NumberField(ord6);
+  cond := Conductor(ord6);
+  mo6 := MaximalOrder(nf6);
+  if mo6 eq ord6 then
+    // workaround for a minor bug in, or disagreement with, Magma:
+    // I think that #(O/1*O)^* should be 1, not 0.
+    okf := 1; of := 1;
+  else
+    q,toq := quo<mo6|cond>;
+    uns := [x: x in q|IsUnit(x)];
+    okf := #uns;
+    // not allowed: of := #UnitGroup(quo<ord6|cond>);
+    of := #[x: x in uns|x@@toq in ord6];
+  end if;
+  h := ClassNumber(mo6);
+  // unit index ....
+  ug,ugto := UnitGroup(mo6);
+  ugo,ugoto := UnitGroup(ord6);
+  sug := sub<ug|[(mo6!ugoto(ugo.i))@@ugto: i in [1..Ngens(ugo)]]>;
+  uind := Index(ug,sug);
+  ans := Z!(h/uind*okf/of);
+  return ans;
+end function;
+
+function orders_containing(ord)
+  nf6 := NumberField(ord);
+  mo6 := MaximalOrder(ord);
+  ag := AbelianGroup([0^^Degree(nf6)]);
+  subag := sub<ag|[Eltseq(mo6!i): i in Basis(ord)]>;
+  q,toq := quo<ag|subag>;
+  subs := [i`subgroup@@toq: i in Subgroups(q)];
+  ords := {@Order([nf6!mo6!Eltseq(ag!i): i in Generators(s)]): s in subs@};
+  return ords;
+end function;
+  
+poli := Polynomial([1,0,1]);
+polw := Polynomial([1,1,1]);
+R := RealField(10);
+pi := Pi(R);
+

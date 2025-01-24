@@ -1,0 +1,208 @@
+// code to generate the tables in section 7
+load "lucant-dim.mag";
+load "polyhedra.mag";
+g0disc := [49, 81, 148, 169, 229, 257, 316, 321, 361, 404, 469, 473, 564, 568, 621, 697, 733, 756, 761, 785, 788, 837, 892, 940, 985, 993, 1076, 1257, 1300, 1345, 1396, 1489, 1593];
+g1disc := [1016, 1101, 1129, 1229, 1369, 1373, 1425, 1492, 1573, 1620, 1765, 1825, 1929, 1937];
+nf0 := [rep{x: x in nfs|Discriminant(x) eq i}: i in g0disc];
+nf1 := [rep{x: x in nfs|Discriminant(x) eq i}: i in g1disc];
+cl2 := [x: x in nf0 cat nf1|NarrowClassNumber(x) eq 2];
+// table 6, the table of prime levels with geometric genus 0 or 1
+function primes_pg_01(nf)
+  hplus := NarrowClassNumber(nf);
+  z := -Roots(MinimalPolynomial(Evaluate(LSeries(nf),-1),1),Q)[1,1];
+  // find the rings S = O_K[x]/(x^2-tx+u) as in thm. 7.1
+  pairs := tu_pairs(nf);
+  mo := MaximalOrder(nf);
+  quads := [ext<nf|Polynomial([pair[1],pair[2],1])>: pair in pairs];
+  abs_quads := [AbsoluteField(i): i in quads];
+  roots := [*abs_quads[i]!quads[i].1: i in [1..#pairs]*];
+  ords := [Order([i*rt^j: i in Basis(mo), j in [0,1]]): rt in roots];
+  all_ords := &join [orders_containing(i): i in ords];
+  cs := [picard_number(i)/(2*unit_index(i,mo)): i in all_ords];
+
+  np_bound := (1+2*&+cs-hplus)/(z/4)-1;
+  ps := PrimesUpTo(Floor(np_bound),nf);
+  prime_g0 := [];
+  prime_g1 := [];
+  for p in ps do
+    // for this we could just use a formula rather than computing every time
+    /*time*/ dim := Dimension(NewSubspace(HilbertCuspForms(nf,p)));
+    if dim eq 0 then
+      Append(~prime_g0,p);
+    elif dim eq 1 then
+      Append(~prime_g1,p);
+    end if;
+  end for;
+  return prime_g0, prime_g1;
+end function;
+
+function format_p(nf,pi)
+  mo := MaximalOrder(nf);
+  nm := Norm(pi);
+  // write (q) as such
+  if pi eq Minimum(pi)*mo then pstr := Sprintf("(%o)",Minimum(pi));
+  else
+    dp := Decomposition(nf,Minimum(pi));
+    ram_ind := rep{x[2]: x in dp|pi eq Ideal(x[1])};
+    // otherwise write p_q if unambiguous and r_q if necessary to
+    // specify the ramified prime of that norm
+    pstr := Sprintf("\\%o_"*(Norm(pi) gt 9 select "{%o}" else "%o"),ram_ind eq 2 select "rr" else "p", Norm(pi));
+  end if;
+  return pstr;
+end function;
+
+// pretty-print an arbitrary ideal
+function format_product(nf,id)
+  mo := MaximalOrder(nf);
+  maxint := GCD([Z!i: i in &cat [Eltseq(mo!i): i in Basis(id)]]);
+  if maxint gt 1 then
+    idd := ideal<mo|Basis(id*1/maxint)>;
+    return (Norm(idd) eq 1 select Sprintf("(%o)",maxint) else IntegerToString(maxint)*format_product(nf,idd));
+  end if;
+
+  fact := Factorization(id);
+  str := "";
+  for i in [1..#fact] do
+    fp := format_p(nf,fact[i,1])*"'"^#[j: j in [1..i-1]|Norm(fact[j,1]) eq Norm(fact[i,1])];
+    if fact[i,2] ge 10 then fp *:= Sprintf("^{%o}",fact[i,2]);
+    elif fact[i,2] ge 2 then fp *:= Sprintf("^%o",fact[i,2]);
+    end if;
+    str *:= fp;
+  end for;
+  return str;
+end function;
+
+function format_ids(nf,ids)
+  auts := Automorphisms(nf);
+  mo := MaximalOrder(nf);
+  col := "";
+  // if the field is Galois, we don't have to try all the conjugates
+  needed := [ids[i]: i in [1..#ids]|forall{j: j in [1..i-1], a in auts|ids[i] ne ideal<mo|[a(b): b in Basis(ids[j])]>}];
+  for p in [1..#needed] do
+    pi := needed[p];
+    idstr := format_product(nf,pi);
+    col *:= idstr;
+    if p lt #needed then col *:= ", "; end if;
+  end for;
+  return col;
+end function;
+
+function table6_line(nf)
+  mo := MaximalOrder(nf);
+  p0, p1 := primes_pg_01(nf);
+  if #p0 + #p1 eq 0 then return ""; end if;
+  cols := [format_ids(nf,i): i in [p0,p1]];
+  output := Sprintf("$\\cf{%o}$&$%o$&$%o$\\\\ \\hline",Discriminant(mo),cols[1],cols[2]);
+  return output;
+end function;
+
+function ep(nf,p)
+  np := Norm(p);
+  if Discriminant(nf) eq 49 then
+    return (np mod 7 eq 1 select 1/42 else (np eq 7 select 1/84 else 0));
+  elif Discriminant(nf) eq 81 then
+    return (np mod 9 eq 1 select 1/9 else (np eq 3 select 1/18 else 0));
+  else
+    return 0;
+  end if;
+end function;
+
+// now table 7: we determine which ones might not be of general type.
+function table7_line(nf: genus := 1*MaximalOrder(nf))
+  mo := MaximalOrder(nf);
+  z := -Roots(MinimalPolynomial(Evaluate(LSeries(nf),-1),1),Q)[1,1];
+  tpu,unit_list,bk,units_bk := unit_data(nf);
+  reducers := list_reducers(nf,units_bk,bk: id := genus);
+  polyhedra := make_polyhedra(units_bk cat unit_list,Include(reducers,Minimum(genus)));
+  vol := union_decompose(polyhedra:silent)*Discriminant(MaximalOrder(nf))*NarrowClassNumber(nf);
+
+  ep_max := (Discriminant(nf) eq 49 select 1/42 else (Discriminant(nf) eq 81 select 1/9 else 0));
+  norm_bound := (2*vol+ep_max)/(2*z)-1;
+  ps := PrimesUpTo(Floor(norm_bound),nf);
+
+  nongen_p := [p: p in ps|(Norm(p)+1)*z le 2*vol+ep(nf,p)];
+
+  // now we make the table line
+  if #nongen_p eq 0 then return ""; end if;
+  sign := (NarrowClassNumber(nf) eq 2 select (IsNarrowlyPrincipal(genus) select "+" else "-") else "");
+  output := Sprintf("$\\cf{%o}$&$%o$&$%o$\\\\ \\hline",Discriminant(mo),sign,format_ids(nf,nongen_p));
+  return output;
+end function;
+
+// table 8: nonprime levels with geometric genus at most 1
+function table8_line(nf)
+  p0 := primes_pg_01(nf);
+  mo := MaximalOrder(nf);
+  prods := [p0];
+  pg0 := []; pg1 := [];
+  while #prods[#prods] gt 0 do
+    pr2 := {@x*y: x in prods[#prods], y in p0|(Discriminant(nf) ne 49 or Norm(x*y) le 340) and forall{p: p in Factorization(x*y)|x*y*p[1]^-1 in prods[#prods]}@};
+    newpg0 := [];
+    for i in pr2 do
+      dim := Dimension(NewSubspace(HilbertCuspForms(nf,i)));
+      if dim eq 0 then Append(~newpg0,i);
+      elif dim eq 1 then Append(~pg1,i);
+      end if;
+    end for;
+    pg0 cat:= newpg0;
+    Append(~prods,newpg0);
+  end while;
+
+  if #pg0 eq 0 and #pg1 eq 0 then return ""; end if;
+  Sort(~pg0,func<x,y|Norm(x)-Norm(y)>);
+  Sort(~pg1,func<x,y|Norm(x)-Norm(y)>);
+  output := Sprintf("$\\cf{%o}$&$%o$&$%o$\\\\ \\hline",Discriminant(mo),format_ids(nf,pg0),format_ids(nf,pg1));
+  return output;
+end function;
+
+// function to try to make rows for table 9
+function attempt_kodaira(nf,id,wt: sl := false)
+  mo := MaximalOrder(nf);
+  hilb := lucant_hilb(nf,id: sl := sl);
+  defs := new_defects(nf,wt div 2);
+  // this may not be the exact number of cusps; it's really the number of
+  // cusps weighted by the unit indices
+  weighted_cusps := &+[#UnitGroup(quo<mo|i+id/i>): i in Divisors(id)];
+
+  ug,ugto := UnitGroup(nf);
+  ug_sub := (sub<ug|sl select [2*i: i in Generators(ug)] else [i@@ugto: i in tpu_basis(nf)]>);
+  assert forall{x: x in Generators(ug_sub)|IsTotallyPositive(ugto(x))};
+  divs := Divisors(id);
+
+  n_cusps := 0;
+  for i in divs do
+    ini := ideal<mo|i+id/i>;
+    q,toq := quo<mo|ini>;
+    uq,uqto := UnitGroup(q);
+    n_cusps +:= #uq/#sub<uq|[(toq(ugto(i)))@@uqto: i in Generators(ug_sub)]>;
+  end for;
+  
+  // ideally it could just be the Hilbert series
+  dim := (sl select Dimension(NewSubspace(HilbertCuspForms(nf,id,[wt^^Degree(nf)]))) else Coefficient(PowerSeriesRing(Q)!hilb,wt)+n_cusps);
+  kd := Sign(dim-defs[wt div 2]*weighted_cusps-1);
+  if kd eq -1 then output := ""; else
+    type_str := (NarrowClassNumber(nf) eq 1 select " " else (sl select "\\SL_2" else "\\GL_2^+"));
+    output := Sprintf("$\\cf{%o}$&$%o$&$%o$&$%o$&$%o$&$%o$&$%o$\\\\ \\hline", Discriminant(mo), format_ids(nf,[id]),type_str,kd,wt,dim,defs[wt div 2]*n_cusps);
+  end if;
+  return output;
+end function;
+
+function table9_lines()
+  table_data := [attempt_kodaira(nfs[1],2*MaximalOrder(nfs[1]),4)];
+  for i in [2,3] do
+    Append(~table_data,attempt_kodaira(nfs[i],PrimesUpTo(10,nfs[i])[1]^2,4));
+  end for;
+  return table_data;
+end function;
+
+// and here is a quick script that actually regenerates the tables
+function create_tables()
+  table6 := [table6_line(nf): nf in nf0];
+  table7 := [table7_line(nf): nf in nf0];
+  table8 := [table8_line(nf): nf in nf0];
+  table9 := table9_lines();
+  tables := [[x: x in t|x ne ""]: t in [table6,table7,table8,table9]];
+  return tables;
+end function;
+
+

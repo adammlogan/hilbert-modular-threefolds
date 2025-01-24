@@ -1,0 +1,327 @@
+load "minimal.mag";
+// code to handle the polyhedra that arise
+// user functions:
+// unit_data       call other functions to construct useful sets of units
+// list_reducers   list the reducers of an ideal
+// make_polyhedra  construct the polyhedra corresponding to a set of reducers
+// union_decompose find the volume of a union of polyhedra
+// cusp_vol        find the volume of a cusp for a given ideal and number field
+
+
+// form a single inequality for the coefficients of y given x in the number
+// field such that tr(xy) < n
+ineq := func<x,mo|[Trace(x*i): i in Basis(mo)]>;
+
+// construct a basis of totally positive units, a set of units such that
+// for each place there is one that is >1 there and <1 elsewhere, and all
+// the units whose real embeddings are bounded by b_K (see paper).
+function unit_data(nf)
+  tpu := tpu_basis(nf);
+  unit_list := unit_places(nf,tpu);
+  bk := get_bk(unit_list);
+  units_bk := units_to_bd(nf,tpu,bk);
+  units_bk cat:= [x: x in unit_list|x notin units_bk];
+  return tpu,unit_list,bk,units_bk;
+end function;
+
+// Given a reducer, form the corresponding spike.
+// That is, we have a collection of units such that everything that is
+// not trace-minimal is reduced by one of them, and we form the trace-minimal
+// cone and intersect it with the half-space where tr(xr) < 1.
+// This is one of the polyhedra that forms the region in which we have to
+// count points.
+function spike(units,reducer)
+  nf := NumberField(Universe(units));
+  mo := MaximalOrder(nf);
+  ineqs := Append([ineq(x-1,mo): x in units],ineq(-reducer,mo));
+  pol := PolyhedronWithInequalities(ineqs,Append([0: i in units],-1));
+  return pol;
+end function;
+
+// build the polyhedron of trace-minimal elements
+min_poly := func<units|spike(units,1)>;
+
+// function to list the reducers of an ideal, by default (1)
+function list_reducers(nf,units_bk,bk:verbose := false, threshold := 20, id := false, silent := false)
+  if verbose then "creating trace-minimal cone"; end if;
+  mo := MaximalOrder(nf);
+  if id cmpeq false then id := 1*mo; end if;
+  mp := min_poly(units_bk);
+  // convert vertices back into elements of the number field
+  verts := [nf!&+[Eltseq(i)[j]*Basis(mo)[j]: j in [1..Degree(nf)]]: i in Vertices(mp)|Eltseq(i) ne [0^^Degree(nf)]];
+  if verbose then printf "cone found, %o vertices\n", #verts; end if;
+  id_reducers := []; id_reducers_strict := [];
+  for v in verts do
+    if verbose then "finding reducers for", v; end if;
+    // Append(~id_reducers,reduce_x(nf,v: fast, verbose := verbose));
+    cp := Cputime();
+    new_reducers := reducers_rigorous(nf,v,bk: verbose := verbose, threshold := threshold, id := id);
+    if not silent then "Time: ", Cputime(cp); end if;
+    Append(~id_reducers,new_reducers);
+    if verbose then "found", #id_reducers[#id_reducers]; end if;
+    new_reducers_strict := {@nf|x: x in new_reducers|Trace(x*v-Minimum(id)*v) lt 0@};
+    Append(~id_reducers_strict,new_reducers_strict);
+  end for;
+  // some reducers could reduce more than one extremal ray, so we join them
+  reducers := &join id_reducers;
+  reducers_strict := &join id_reducers_strict;
+  return /*reducers,*/reducers_strict;
+end function;
+  
+// Make the polyhedra to feed to a union-volume-finding function.
+function make_polyhedra(units,reducers)
+  // make sure that the minimum of the ideal is among the reducers
+  // if 1 notin reducers then Include(~reducers,1); end if;
+  polyhedra := [spike(units,i): i in reducers];
+  return polyhedra;
+end function;
+
+// Find the volume of the union of a collection of polyhedra.
+// This will cause problems if we have a lot of reducers, but see below.
+function inclusion_exclusion(polyhedra: verbose := false)
+  vol := 0;
+  empty := {};
+  ct := 0;
+  for i in [1..#polyhedra] do
+    si := Subsets({1..#polyhedra},i);
+    for s in si do
+      ct +:= 1; if ct mod 1000 eq 0 then printf "%o ", i; end if;
+      if exists{e: e in empty|e subset s} then continue; end if;
+      vol_s := Volume(&meet [polyhedra[i]: i in s]);
+      // if we have an empty intersection, it's not necessary to contain
+      // further intersections.
+      if vol_s eq 0 then
+        Include(~empty,s);
+      else
+        vol -:= (-1)^i*vol_s;
+        if verbose then printf "%o ", vol; end if;
+      end if;
+    end for;
+    if verbose then printf "\n"; else vol; end if;
+  end for;
+  // Magma seems to do some weird normalization where the volume of the
+  // unit hypercube in R^n is n!.
+  vol /:= Factorial(Dimension(polyhedra[1]));
+  return vol;
+end function;
+
+// given a sequence of n things in order, find the spot (from 0 to n)
+// after which the new thing should go
+
+function binary_search(seq,x)
+  lb := 0; ub := #seq;
+  while lb ne ub do
+    nb := (lb+ub+1) div 2;
+    if x ge seq[nb] then
+      lb := nb;
+    else ub := nb-1;
+    end if;
+  end while;
+  return lb;
+end function;
+
+// function to find the volume of a union of polyhedra by slicing.
+// The point is that if you take parallel slices of a union of polyhedra
+// in R^d, the volume of a slice is piecewise degree d-1.  This is something
+// that is essentially in the literature though maybe not so easy to cite.
+
+// It seems to work in dimension 2, but in dimension 3 it becomes slow and
+// inaccurate, presumably because I don't understand how exactly to break
+// things up.
+function union_vol_slice(polyhedra:indent := 0,verbose := false)
+  error "this function is buggy and should not be used";
+  if #polyhedra eq 0 then return 0; end if;
+  vs := [Vertices(p): p in polyhedra];
+  dim := #Eltseq(vs[1,1]);
+  sp := " "^indent;
+  if exists{p: p in polyhedra|Dimension(p) lt dim} then
+    sp*"warning: polytope of unexpectedly low dimension";
+    polyhedra := [x: x in polyhedra|Dimension(x) eq dim];
+    if #polyhedra eq 0 then return 0; end if;
+  end if;
+  if verbose then printf "%oentering union_vol_slice with %o polyhedra of dimension %o\n", sp,#polyhedra,dim; end if;
+  if dim eq 1 then
+    if verbose then printf "%ousing interval-union algorithm", sp; end if;
+    assert forall{x: x in vs|#x eq 2};
+    // lists of alternating start and end points
+    ends := [];
+    for v in vs do
+      vi := Sort([Eltseq(i)[1]: i in v]);
+      inds := [binary_search(ends,i): i in vi];
+      ends := ends[1..inds[1]] cat [vi[i]: i in [1,2]|IsEven(inds[i])] cat ends[inds[2]+1..#ends];
+      if verbose then printf "."; end if;
+    end for;
+    if verbose then printf "\n"; end if;
+    length := &+[ends[i]-ends[i-1]: i in [2..#ends by 2]];
+    return length;
+  else
+    // we set up an induction.  The point is that the volume of a codimension-1
+    // slice in dimension d is a piecewise degree d-1 polynomial, so we can
+    // determine each piece from d values, and the only changes are at the
+    // vertices of the intersections of two polyhedra (or is it up to d?)
+    intd := {@&meet s: s in Subsets(Set(polyhedra),i), i in [1..dim]@};
+    all_v2 := &join [{ChangeUniverse(Eltseq(v),Q): v in Vertices(i)}: i in intd];
+    box := [{Min([v[i]: v in all_v2]),Max([v[i]: v in all_v2])}: i in [1..dim]];
+    breaks := Sort({@v[dim]: v in all_v2@});
+    assert Min(box[dim]) eq breaks[1] and Max(box[dim]) eq breaks[#breaks];
+    vol := 0;
+    for i in [1..#breaks-1] do
+      if verbose then printf "%ostarting interval %o\n",sp,i; end if;
+      // do one extra for security, and avoid the breakpoints where
+      // the function is discontinuous
+      bps := [breaks[i]+c/(dim+2)*(breaks[i+1]-breaks[i]): c in [1..dim+1]];
+      vols := [Q|];
+      for b in bps do
+        if verbose then printf "%ostarting slice %o\n",sp,Index(bps,b); end if;
+        newpols := [];
+        for p in polyhedra do
+          // this is clumsy but I can't see a better way to put them in the same space
+          newpol := p meet Polyhedron([Universe(Vertices(p))!Eltseq(i): i in Vertices(&*[Polyhedron([[x]: x in box[i]]): i in [1..dim-1]]*Polyhedron([[b]]))]);
+          if Dimension(newpol) eq dim-1 then
+            Append(~newpols,Polyhedron([Eltseq(i)[1..dim-1]: i in Vertices(newpol)]));
+          end if;
+        end for;
+        Append(~vols,union_vol_slice(newpols: indent := indent+1, verbose := verbose));
+      end for;
+      interp := Interpolation(bps,vols);
+      assert Degree(interp) lt dim;
+      intvol := Evaluate(ii,breaks[i+1])-Evaluate(ii,breaks[i]) where ii is Integral(interp);
+      vol +:= intvol;
+      if verbose then printf "%oadding interpolated volume %o\n", sp,vol; end if;
+    end for;
+    return vol;
+  end if;
+end function;
+
+// try to break up a union into polyhedra that are disjoint
+// note: "verbose" takes precedence over "silent"
+function union_decompose(polyhedra: verbose := false, silent := false)
+  if #polyhedra eq 0 then return 0,0,[]; end if;
+  dim := #Eltseq(Rep(Vertices(polyhedra[1])));
+  if exists{p: p in polyhedra|Dimension(p) lt dim} then
+    if not silent then "warning: polytope of lower dimension"; end if;
+    polyhedra := [x: x in polyhedra|Dimension(x) eq dim];
+  end if;
+  if #polyhedra eq 0 then return 0,0,[]; end if;
+  if verbose then "computing volumes"; end if;
+  Sort(~polyhedra,func<x,y|Volume(x)-Volume(y)>);
+  // #polyhedra, "polyhedra";
+  if verbose then "removing polyhedra contained in others"; end if;
+  exclude := {@@};
+  // we could also notice that if P is contained in Q but not R, then Q
+  // is not contained in R.  But I'm not sure it's worth the trouble.
+  for i in [1..#polyhedra], j in [#polyhedra..i+1 by -1] do
+    if verbose and j eq #polyhedra then "starting polyhedron", i; end if;
+    // we don't need to check polyhedra contained in another;
+    // anything contained in the smaller one is contained in the larger
+    // they automatically come in order now
+    if j notin exclude and i ne j and polyhedra[i] meet polyhedra[j] eq polyhedra[i] then
+      if verbose then "polyhedron", i, "is contained in polyhedron", j; end if;
+      Include(~exclude,i);
+      continue i;
+    end if;
+  end for;
+  polyhedra := [polyhedra[i]: i in [1..#polyhedra]|i notin exclude];
+  if not silent then "finished with inclusions:", #polyhedra, (#polyhedra eq 1 select "polyhedron left" else "polyhedra left"); end if;
+  /*while exists(i){i: i,j in [1..#polyhedra]|i ne j and polyhedra[i] meet polyhedra[j] eq polyhedra[i]} do
+    Remove(~polyhedra,i);
+  end while;*/
+  // this is the ambient toric lattice, which we use to make inequalities
+  tl := Universe(Vertices(polyhedra[1]));
+  tld := Dual(tl);
+  if verbose then "finding pairs that intersect"; end if;
+  // really we only care if the intersection has positive volume
+  bad_pairs := {@s: s in Subsets({1..#polyhedra},2)|Dimension(&meet [polyhedra[i]: i in s]) eq dim@};
+  if verbose then "computing volumes"; end if;
+  vols := [Volume(i): i in polyhedra];
+  ct := 0;
+  if verbose then "starting with", #polyhedra, "polytopes with", #bad_pairs, "intersecting pairs"; end if;
+  while #bad_pairs gt 0 do
+    ct +:= 1;
+    pair := bad_pairs[#bad_pairs];
+    minv := (vols[Min(pair)] ge vols[Max(pair)] select Min(pair) else Max(pair));
+    maxv := rep{x: x in pair|x ne minv};
+    // try the easy case where one polyhedron is contained in the other;
+    // we can just ignore it (but now this shouldn't happen)
+    if &meet [polyhedra[i]: i in pair] eq polyhedra[minv] then
+      if not silent then "one polytope is contained in another; possible bug?"; end if;
+      Remove(~polyhedra,minv);
+      Remove(~vols,minv);
+      bad_pairs := {@{i gt minv select i-1 else i: i in p}: p in bad_pairs|minv notin p@};
+      continue;
+    end if;
+    if verbose then "choosing a face of the smaller one that cuts the larger one"; end if;
+    faces := Faces(polyhedra[minv])[dim]; // codimension-1 faces
+    // construct the half-spaces into which each face separates space
+    vss := [[Vector(Eltseq(i)): i in Vertices(f)]: f in faces];
+    kers := [Kernel(Transpose(Matrix([v-vs[1]: v in vs]))): vs in vss];
+    assert forall{k: k in kers|Dimension(k) eq 1};
+    cs := [{&+[(kers[i].1)[j]*v[j]: j in [1..dim]]: v in vss[i]}: i in [1..#vss]];
+    assert forall{c: c in cs|#c eq 1};
+    halfpairs := [[HalfspaceToPolyhedron(tld!Eltseq(kers[i].1),Rep(cs[i])),HalfspaceToPolyhedron(tld!Eltseq(-kers[i].1),-Rep(cs[i]))]: i in [1..#faces]];
+    // if no hyperplane extending a face cuts the other one into two
+    // pieces of equal dimension, they don't intersect
+    // Should I try to break these in some clever way, such as making
+    // the volumes close?  Or should I try to have one of the parts
+    // contained in another polyhedron?  Maybe it doesn't matter much.
+    dec_pair := rep{[polyhedra[maxv] meet h: h in half]: half in halfpairs|forall{h: h in half|Dimension(polyhedra[maxv] meet h) eq dim}};
+    Remove(~polyhedra,maxv);
+    // If one of the pieces of the larger polyhedron is contained in another
+    // one, we don't need it.
+    if verbose then "removing parts contained in another polyhedron"; end if;
+    dec_pair := [x: x in dec_pair|forall{p: p in polyhedra|x meet p ne x}];
+    Remove(~vols,maxv);
+    // now we maintain our list of pairs with maximal-dimensional intersection
+    // by removing the polyhedron we just removed ....
+    bad_pairs := {@{i gt maxv select i-1 else i: i in p}: p in bad_pairs|maxv notin p@};
+    if verbose then "determining which new polytopes have maximal intersection dimension with others"; end if;
+    // .... and adding the pairs that include one of our new polyhedra
+    // (it can't be both).
+    bad_pairs join:= {@{i,#polyhedra+j}: i in [1..#polyhedra], j in [1..#dec_pair]|Dimension(polyhedra[i] meet dec_pair[j]) eq dim@};
+    polyhedra cat:= dec_pair;
+    vols cat:= [Volume(i): i in dec_pair];
+    if verbose or (not silent and ct mod 10 eq 0) then printf "done %o reductions, currently %o polyhedr%o and %o bad pair%o\n", ct, #polyhedra, (#polyhedra eq 1 select "on" else "a"), #bad_pairs, (#bad_pairs eq 1 select "" else "s"); end if;
+  end while;
+  // Magma takes the volume of the unit simplex to be 1.
+  ans := &+vols/Factorial(dim);
+  return ans,ct,polyhedra;
+end function;
+
+// combine the above into a single function
+function cusp_vol(nf,id)
+  tpu,unit_list,bk,units_bk := unit_data(nf);
+  reducers/*,reducers_strict*/ := list_reducers(nf,units_bk,bk: id := id);
+  polyhedra := make_polyhedra(units_bk cat unit_list,Include(reducers/*_strict*/,Minimum(id)));
+  vol := union_decompose(polyhedra); 
+  vol *:= Discriminant(MaximalOrder(nf))*NarrowClassNumber(nf)/ClassNumber(nf)*Norm(id);
+  return vol;
+end function;
+
+// example: the field of discriminant 473, the first one for which I can
+// prove general type
+/*
+load "defects.mag";
+load "polyhedra.mag";
+nf := rep{x: x in nfs|Discriminant(x) eq 473};
+cp := Cputime();
+// always fast
+tpu,unit_list,bk,units_bk := unit_data(nf);
+// this is wrong if the class number is not 1, because there are more cusps
+reducers := list_reducers(nf,units_bk,bk);
+// in general, minimum of the ideal, not 1
+polyhedra := make_polyhedra(units_bk cat unit_list,Include(reducers,1));
+cpp := Cputime();
+vol,ct := union_decompose(polyhedra); 
+cpp := Cputime(cpp);
+// needs to be multiplied by the norm of the ideal in general
+vol *:= Discriminant(MaximalOrder(nf))*NarrowClassNumber(nf);
+// and we compare this to the value that we got from the other computation.
+// this is the asymptotic for the dimension of the space of modular forms;
+// the power of 2 is always 1 regardless of the degree.
+zeta := AbsoluteValue(2*Roots(MinimalPolynomial(Evaluate(LSeries(nf),-1),1),Q)[1,1]);
+cp := Cputime(cp);
+// assert zeta gt vol;
+output := Sprintf("$%o$&$%o$&$%o$&$%o$&$%o$&$%o$&$%o$&$%o$&$%o$ \\\\ \\hline \n", Discriminant(MaximalOrder(nf)),zeta,vol,NarrowClassNumber(nf),#reducers,#reducers_strict,ct,cp,cpp);
+output;
+*/
+

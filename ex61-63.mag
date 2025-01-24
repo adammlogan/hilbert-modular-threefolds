@@ -1,0 +1,51 @@
+// calculations for example 6.1 and 6.3
+load "defect-new.mag";
+load "polyhedra.mag";
+load "fields.mag";
+"starting example 6.1";
+nf := rep{x: x in nfs|Discriminant(MaximalOrder(x)) eq 761};
+// standard unit generators
+u2 := Roots(t*(t-2)*(t-5)-1,nf)[1,1] where t is PolynomialRing(Q).1;
+u1 := u2-2;
+tpu,unit_list,bk,units_bk := unit_data(nf);
+"checking bound b_K and set of units";
+assert bk lt 76;
+assert Set(units_bk) eq {u1^i[1]*u2^i[2]: i in [[-2,-2],[-2,-1],[-2,0],[-2,1],[0,-1],[0,0],[0,1],[0,2],[2,-1],[2,0],[2,1]]};
+"checking that there are no reducers";
+reducers := list_reducers(nf,units_bk,bk);
+assert #reducers eq 0;
+// in this case there is only one polyhedron, since no reducers.
+"making the polyhedron for 1";
+polyhedra := make_polyhedra(units_bk cat unit_list,Include(reducers,1));
+assert #polyhedra eq 1;
+"confirming the extremal rays of the trace-minimal cone";
+assert {clear_denom(v): v in Vertices(polyhedra[1])} eq {[0,0,0],[23,29,51],[350,-55,-18],[-35,-375,154],[682,132,-109],[84,139,87],[1179,130,-165]} where clear_denom is func<x|[i*LCM([Denominator(a): a in Eltseq(x)]): i in Eltseq(x)]>;
+// In this case we just have one polyhedron.
+// The 6 is the normalization factor, since Magma thinks that the unit simplex
+// has volume 1.
+"checking its volume and the value of zeta(-1)";
+vol := Volume(polyhedra[1])/6*Discriminant(MaximalOrder(nf))*NarrowClassNumber(nf);
+zeta := AbsoluteValue(2*Roots(MinimalPolynomial(Evaluate(LSeries(nf),-1),1),Q)[1,1]);
+assert vol eq 13/2 and zeta eq 20/3;
+
+"starting example 6.3";
+// now we do example 6.3
+nf := rep{x: x in nfs|Discriminant(MaximalOrder(x)) eq 473};
+// unit generators
+u1 := nf.1;
+u2 := u1+2;
+tpu,unit_list,bk,units_bk := unit_data(nf);
+"checking bound b_K and set of units";
+assert bk lt 117;
+assert Set(units_bk) eq {u1^i[1]*u2^i[2]: i in [[-2,-2],[-2,0],[-2,2],[0,-2],[0,0],[0,2],[2,0],[2,2],[4,0]]};
+reducers := list_reducers(nf,units_bk,bk);
+assert #reducers eq 19;
+"making polyhedra for the reducers";
+polyhedra := make_polyhedra(units_bk cat unit_list,Include(reducers,1));
+"finding the volume of the union";
+vol,ct,components := union_decompose(polyhedra);
+vol *:= Discriminant(MaximalOrder(nf));
+zeta := AbsoluteValue(2*Roots(MinimalPolynomial(Evaluate(LSeries(nf),-1),1),Q)[1,1]);
+"checking the volume and the value of zeta(-1)";
+assert vol eq 79/24 and zeta eq 10/3;
+

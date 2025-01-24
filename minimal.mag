@@ -1,0 +1,181 @@
+// functions that rigorously determine the trace-minimal cone and the
+// set of reducers
+
+// user functions:
+// tpu_basis         give a basis of totally positive units
+// unit_places       for each real place, find a unit greater than 1 there and less than 1 at the others
+// get_bk            compute the bound b_K (see paper)
+// intpts            find integral points of a polyhedron
+// reducers_rigorous find the reducers of a given ideal
+
+// basis of totally positive units
+function tpu_basis(nf)
+  rp := RealPlaces(nf);
+  d := #rp;
+  error if d lt Degree(nf), "field is not totally real";
+  ug,ugto := UnitGroup(nf);
+  // the group of signs
+  ag := AbelianGroup([2^^d]);
+  signs := hom<ug->ag|[[Evaluate(ugto(ug.i),r) gt 0 select 0 else 1: r in rp]: i in [1..d]]>;
+  tpu := [ugto(i): i in Generators(Kernel(signs))];
+  return tpu;
+end function;
+tpu := tpu_basis;
+
+// find units that are greater than 1 at one place and less at all others
+function unit_places(nf,tpu)
+  rp := RealPlaces(nf);
+  d := #rp;
+  loglat := LatticeWithBasis(Matrix([[Log(Evaluate(i,r)): r in rp]: i in tpu]));
+  bd := Minimum(loglat);
+  unit_list := [];
+  // I guess this might not be quite optimal, but probably good enough.
+  // The algorithm is to take vectors that are short in the log embedding.
+  // What we want to optimize for is the minimum of (x_i-1)/(1-x_j) as
+  // in the paper, but I don't really know how to do that.
+  while exists{i: i in [1..d]|not IsDefined(unit_list,i)} do
+    bd *:= 1.99;
+    sv := ShortVectors(loglat,bd/2,bd);
+    sv := [x[1]*s: s in [1,-1], x in sv];
+    for v in sv do
+      // check whether the unit is greater than 1 at only one place
+      // (we took logs, so in these coordinates that means positive
+      pos := [x: x in [1..d]|v[x] gt 0];
+      if #pos eq 1 and not IsDefined(unit_list,pos[1]) then
+        unit_list[pos[1]] := &*[tpu[i]^Coordinates(v)[i]: i in [1..d-1]];
+      end if;
+    end for;
+  end while;
+  return unit_list;
+end function;
+
+// this computes a constant b_K such that every trace-minimal element is
+// b_K-balanced (not optimal); see paper for explanations
+function get_bk(unit_list)
+  nf := NumberField(Universe(unit_list));
+  rp := RealPlaces(nf);
+  cs := [(Evaluate(unit_list[i],rp[i])-1)/(1-Evaluate(unit_list[i],rp[j])): i,j in [1..#rp]|i ne j];
+  bk := Max(cs);
+  return bk;
+end function;
+
+// find units that do not exceed the given bound at any place
+function units_to_bd(nf,tpu,bd)
+  rp := RealPlaces(nf);
+  d := #rp;
+  loglat := LatticeWithBasis(Matrix([[Log(Evaluate(i,r)): r in rp]: i in tpu]));
+  // that means that none of their log embeddings can be more than log(bd),
+  // which means that the norm is at most d log^2(bd)
+  sv := [x[1]*s: x in ShortVectors(loglat,d*Log(bd)^2), s in [1,-1]];
+  good_sv := [x: x in sv|Max(Eltseq(x)) le Log(bd)];
+  units_bd := [1] cat [&*[tpu[i]^Coordinates(v)[i]: i in [1..d-1]]: v in good_sv];
+  return units_bd;
+end function;
+
+// function to bound the coefficients of a reducer
+function reducer_bound(nf,bk,id)
+  R := RealField();
+  mo := MaximalOrder(nf);
+  rp := RealPlaces(nf);
+  real_embs := [[R|Evaluate(b,r): b in Basis(id)]: r in rp];
+  d := #rp;
+  signs := CartesianPower({-1,1},d);
+  bds := [[R|0,0]^^d];
+  objs := [Matrix([i]): i in Rows(ScalarMatrix(R,d,Norm(id)))];
+  rels := Matrix(R,[[1]^^d,[-1]^^d]);
+  rhs := Matrix(R,[[0]^^d,[d*bk*Norm(id)]^^d]);
+  for s in signs do
+    // we make a linear program for these signs to bound the variables
+    lhs := VerticalJoin(m,m) where m is Matrix(R,[[s[i]*v[i]: i in [1..d]]: v in real_embs]);
+    for i in [1..d] do
+      max_sol,test1 := MaximalSolution(lhs,rels,rhs,objs[i]);
+      min_sol,test2 := MinimalSolution(lhs,rels,rhs,objs[i]);
+      assert test1 eq 0 and test2 eq 0;
+      if s[i] eq 1 then
+        bds[i,1] := Min(bds[i,1],min_sol[1,i]);
+        bds[i,2] := Max(bds[i,2],max_sol[1,i]);
+      else // the variable is actually its negative
+        bds[i,1] := Min(bds[i,1],-max_sol[1,i]);
+        bds[i,2] := Max(bds[i,2],-min_sol[1,i]);
+      end if;
+    end for;
+  end for;
+  return bds;
+end function;
+
+// this seems to me like the obvious way to find integral points;
+// I'm surprised that it's often faster than Magma
+// the name is somewhat obsolete, since now it returns boundary points too
+// the "strict" parameter decides whether to exclude boundary points
+// (default is false, i.e., don't exclude them)
+function intpts(poly:depth := 0, verbose := false, threshold := 20, strict := false)
+  tl := Universe(Vertices(poly));
+  d := Dimension(poly);
+  // construct a bounding box for the polyhedron
+  lb := [Ceiling(Min([Eltseq(v)[i]: v in Vertices(poly)]))-1/2: i in [1..d]];
+  ub := [Floor(Max([Eltseq(v)[i]: v in Vertices(poly)]))+1/2: i in [1..d]];
+  dists := [Z|ub[i]-lb[i]: i in [1..d]];
+  if verbose then " "^depth*"considering polyhedron with bounding box sizes", dists; end if;
+  md,ind := Max(dists);
+  if md le threshold then
+    // the polyhedron is now small enough that calling Magma's function to
+    // save recursion overhead is advisable
+    if verbose then " "^depth*"calling Magma built-in for small box"; end if;
+    return (strict select InteriorPoints else Points)(poly); // formerly InteriorPoints
+   /* fs := Faces(poly);
+    pt := tl![Ceiling(i): i in lb];
+    if pt in poly and forall{x: x in f, f in fs[1..d]|x notin f} then
+      return {@pt@};
+    else return {@@};
+    end if;*/
+  else
+    // choose the longest dimension of the bounding box and break the
+    // polyhedron along it
+    if verbose then " "^depth*"bisecting polyhedron along axis", ind; end if;
+    bis := (ub[ind]+lb[ind])/2; if bis in Z then bis +:= 1/2; end if;
+    halves := [HalfspaceToPolyhedron([i eq ind select s else 0: i in [1..d]],s*bis): s in [1,-1]];
+    halfpolys := [h meet poly: h in halves];
+    return &join [intpts(i: depth := depth+1, verbose := verbose, threshold := threshold): i in halfpolys];
+  end if;
+end function;
+
+// This function computes the elements of an ideal that reduce a given element
+// of K.  It used to apply only to the maximal order, but I changed it to
+// work for all fractional ideals.  The method is just to find the appropriate
+// simplex in which all the reducers must lie--i.e., totally positive and
+// multiplying the trace by less than the minimum of the ideal.
+function reducers_rigorous(nf,v,bk: scale := 100, verbose := false, threshold := 20, id := false)
+  error if scale notin Z or scale le 0, "scaling factor must be a positive integer";
+  mo := MaximalOrder(nf);
+  if id cmpeq false then id := 1*mo; end if;
+  rp := RealPlaces(nf);
+  d := #rp;
+  if verbose then "making the bounds for reducers and setting up"; end if;
+  bds := reducer_bound(nf,bk,id);
+  // Floor instead of Ceiling is fine; this is paranoia
+  int_bds := [scale*Max([Ceiling(AbsoluteValue(i)): i in bd]): bd in bds];
+  int_bd := Max(int_bds);
+  // one inequality is that tr(rv) < tr v, or tr(-rv) > -tr v 
+  ineq1 := <[Trace(-b*v): b in Basis(id)],Minimum(id)*Q!-Trace(v)>;
+  // and the others are that it has to be totally positive
+  embs := [[Evaluate(i,r): i in Basis(id)]: r in rp];
+  // we now round these to nearby rational numbers, so as to construct
+  // a polyhedron containing the initial one
+  // is it faster to just use int_bd?  Probably doesn't matter
+  // ineqs_pls := [[scale*Round(e[i]*int_bds[i])/int_bds[i]: i in [1..d]]: e in embs];
+  ineqs_pls := [[scale*Round(e[i]*int_bd)/int_bd: i in [1..d]]: e in embs];
+  // why can't you use a rational number in PolyhedronWithInequalities?
+  poly := PolyhedronWithInequalities(Append(ineqs_pls,[den*i: i in ineq1[1]]),[Z|-d^^d,den*ineq1[2]]) where den is Denominator(ineq1[2]);
+  if verbose then "finding the lattice points"; end if;
+  // latpts := InteriorPoints(poly);
+  latpts := intpts(poly: verbose := verbose, threshold := threshold);
+  id_red := {@&+[Eltseq(v)[i]*Basis(id)[i]: i in [1..d]]: v in latpts@};
+  // this used to be Trace(mv) lt Trace(v), but I changed the definition
+  assert forall{m: m in id_red|Trace(m*v) le Minimum(id)*Trace(v)};
+  if verbose then "verifying total positivity"; end if;
+  nonp := {@x: x in id_red|not IsTotallyPositive(x)@};
+  // ideally this would contain only 0
+  if verbose and exists{x: x in nonp|x ne 0} then "excluded elements", nonp diff {@0@}; end if;
+  id_red diff:= nonp;
+  return id_red;
+end function;

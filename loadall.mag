@@ -1,0 +1,5 @@
+load "qz.mag";
+load "tables-sec6.mag";
+load "tables-sec7.mag";
+load "dimension.mag";
+load "cq-defect.mag";

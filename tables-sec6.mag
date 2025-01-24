@@ -1,0 +1,65 @@
+// functions to create the tables in section 6
+load "defect-new.mag";
+load "polyhedra.mag";
+load "fields.mag";
+// fields with p_g(H_K) = 0 or 1 respectively, from Grundman-Lippincott
+// all of these have class number 1
+g0disc := [49, 81, 148, 169, 229, 257, 316, 321, 361, 404, 469, 473, 564, 568, 621, 697, 733, 756, 761, 785, 788, 837, 892, 940, 985, 993, 1076, 1257, 1300, 1345, 1396, 1489, 1593];
+g1disc := [1016, 1101, 1129, 1229, 1369, 1373, 1425, 1492, 1573, 1620, 1765, 1825, 1929, 1937];
+nf0 := [rep{x: x in nfs|Discriminant(x) eq i}: i in g0disc];
+nf1 := [rep{x: x in nfs|Discriminant(x) eq i}: i in g1disc];
+cl2 := [x: x in nf0 cat nf1|NarrowClassNumber(x) eq 2];
+
+// create a line in our tables
+// this assumes that the class number is 1, since otherwise there are
+// more cusps
+function table_line(nf,id: nclassno := true)
+  cp := Cputime();
+  tpu,unit_list,bk,units_bk := unit_data(nf);
+  // reducers,reducers_strict := list_reducers(nf,units_bk,bk: id := id, silent);
+  reducers := list_reducers(nf,units_bk,bk: id := id, silent);
+  polyhedra := make_polyhedra(units_bk cat unit_list,Include(reducers,Minimum(id)));
+  cpp := Cputime();
+  vol,ct := union_decompose(polyhedra:silent); 
+  cpp := Cputime(cpp);
+  vol *:= Discriminant(MaximalOrder(nf))*NarrowClassNumber(nf)*Norm(id);
+  zeta := AbsoluteValue(2*Roots(MinimalPolynomial(Evaluate(LSeries(nf),-1),1),Q)[1,1]);
+  cp := Cputime(cp);
+  if nclassno then
+    output := Sprintf("$\\cf{%o}$&$%o$&$%o$&$%o$&$%o$&$%o$&$%o$&$%o$ \\\\ \\hline \n", Discriminant(MaximalOrder(nf)),zeta,vol,NarrowClassNumber(nf),#reducers,ct,cp,cpp);
+  else
+    output := Sprintf("$\\cf{%o}$&$%o$&$%o$&$%o$&$%o$&$%o$&$%o$ \\\\ \\hline \n", Discriminant(MaximalOrder(nf)),zeta,vol,#reducers,ct,cp,cpp);
+  end if;
+  return output;
+end function;
+
+// give the LaTeX code for the lines of a table such as those in section 6
+// of the paper
+function make_table(flds:principal := true,nclassno := true);
+  lines := [];
+  for fld in flds do
+    if principal then
+      id := 1*MaximalOrder(fld);
+      Append(~lines,table_line(fld,id:nclassno := nclassno));
+    else
+      if NarrowClassNumber(fld) eq 2 then
+        ids := PrimesUpTo(100,fld);
+        np := rep{x: x in ids|not IsNarrowlyPrincipal(x)};
+        Append(~lines,table_line(fld,np:nclassno := nclassno));
+      end if;
+    end if;
+    end for;
+  return lines;
+end function;
+
+function create_tables()
+  table1 := make_table([x: x in nf0|Discriminant(MaximalOrder(x)) lt 473]);
+  Insert(~table1,6,make_table([nf0[5]]: principal := false)[1]);
+  table2 := make_table([x: x in nf0|Discriminant(MaximalOrder(x)) ge 473]);
+  table3 := make_table(nf1);
+  table4 := make_table(nf0:principal := false,nclassno := false);
+  table5 := make_table(nf1:principal := false,nclassno := false);
+  return table1,table2,table3,table4,table5;
+end function;
+
+

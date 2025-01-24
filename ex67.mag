@@ -1,0 +1,22 @@
+load "polyhedra.mag";
+load "defect-new.mag";
+load "fields.mag";
+load "dimension.mag";
+// calculations for example 6.7
+"starting example 6.7";
+nf := rep{x: x in nfs|Discriminant(MaximalOrder(x)) eq 469};
+tpu,unit_list,bk,units_bk := unit_data(nf);
+reducers := list_reducers(nf,units_bk,bk);
+"making polyhedra for the reducers";
+polyhedra := make_polyhedra(units_bk cat unit_list,Include(reducers,1));
+vol,ct,components := union_decompose(polyhedra);
+"finding the volume of the union";
+vol *:= Discriminant(MaximalOrder(nf));
+zeta := AbsoluteValue(2*Roots(MinimalPolynomial(Evaluate(LSeries(nf),-1),1),Q)[1,1]);
+"failing to prove that the threefold is of general type";
+assert zeta lt vol; // so no proof of general type
+// Hilbert series for the ring of modular forms from Thomas-Vasquez
+dims := vt_series(nf);
+defs := new_defects(nf,7);
+"verifying that 2K, 3K, 4K all have at least 2 sections";
+assert forall{i: i in [2..4]|Coefficient(dims,i) - defs[i] ge 2};
