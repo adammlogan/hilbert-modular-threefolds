@@ -10,7 +10,16 @@ load "grundman-chi.mag";
 // lie within certain specified bounds.
 function box_elements(F,aa,lbs,ubs)
   error if exists{i: i in lbs cat ubs|not ISA(Type(i),FldReElt)}, "bounds must be coercible to real numbers";
-  basis := TraceBasis(1*aa);
+  // The TraceBasis seems to cause problems, but I don't need it.
+  // basis := TraceBasis(1*aa);
+  trs := [Trace(i): i in Basis(1*aa)];
+  cd := LCM([Denominator(i): i in trs]);
+  tmat := Transpose(Matrix(Z,[[t*cd: t in trs]]));
+  mintr := GCD(Eltseq(tmat));
+  tgen := Solution(tmat,Vector([mintr]));
+  tker := Kernel(tmat);
+  assert Determinant(Matrix(Append([Eltseq(i): i in Basis(tker)],Eltseq(tgen)))) in [1,-1];
+  basis := [&+[Basis(1*aa)[i]*t[i]: i in [1..#Eltseq(t)]]: t in [tgen] cat Basis(tker)];
   ZF := Integers(F);
   places := RealPlaces(F);
   // the images of the basis elements, as sequences of real numbers
