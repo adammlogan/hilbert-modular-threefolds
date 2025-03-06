@@ -25,10 +25,10 @@ function sections_nk(nf,n: prec := 0);
   Ek := EisensteinBasis(Mk);
   Bk := Sk cat Ek;
   
-  ks := Sort(Setseq(Keys(Coefficients(Sk[1])[1*mo])),func<x,y|Norm(x)-Norm(y)>);
+  ks := Sort(Setseq(Keys(Coefficients(Bk[1])[1*mo])),func<x,y|Norm(x)-Norm(y)>);
   inds := [Index(ks,x): x in ks|x eq 0 or x*mo in nd[n]];
   assert 0 notin inds;
-  coeff_mat := Matrix([[Coefficients(mf)[1*mo,i]: i in ks]: mf in Sk cat Ek]);
+  coeff_mat := Matrix([[Coefficients(mf)[1*mo,i]: i in ks]: mf in Bk]);
   assert Rank(coeff_mat) eq Coefficient(vt,n);
 
   vprint ModFrmHil,2: "doing basic linear algebra";
