@@ -1,0 +1,66 @@
+load "fields.mag";
+load "defect-new.mag";
+// function to try to find sections of the pluricanonical
+load "dimension.mag";
+
+function sections_nk(nf,n:M := false)
+  mo := MaximalOrder(nf);
+  ndct,nd := new_defects(nf,n-1);
+  max_norm := Max([Norm(i): i in nd[n]]);
+  vt := vt_series(nf); // do we even need this?
+  // we need the nth coefficient of vt many forms, at least.
+  // So we need everything computed up to there.
+  id_bd := 1;
+  repeat
+    id_bd *:= 2;
+    ids := IdealsUpTo(id_bd,nf);
+  until #ids gt 2*Coefficient(vt,n);
+  pn := Partitions(n);
+  scale := Coefficient(vt,n)/(#pn-1);
+  // we have #pn-1 useful products of Eisenstein series.  (Unless dependent?)
+  // That means that we need vt[n]/(#pn-1) Eisenstein series (at least),
+  // which means we need that many times as many ideals.
+
+  // is this big enough?  Maybe not if nf is Galois.
+  sc_bd := 1;
+  repeat
+    sc_bd *:= 2;
+    ids_scale := IdealsUpTo(sc_bd,nf);
+  until #ids_scale gt 2*Coefficient(vt,n)/(#pn-1);
+  m_bd := M cmpne false select Precision(M) else id_bd*sc_bd*2*#Automorphisms(nf);
+  if M cmpeq false then
+    M := GradedRingOfHMFs(nf,m_bd); 
+  end if;
+
+  eisensteins := [*EisensteinBasis(HMFSpace(M,1*MaximalOrder(nf),[i,i,i]))[1]: i in [2..2*n by 2]*];
+  ind_n := Index(pn,[n]);
+  eis_n := [];
+  // &*[*eisensteins[i]: i in p*] is illegal
+  for p in pn do
+    eis := eisensteins[p[1]];
+    time for i in [2..#p] do
+      eis *:= eisensteins[p[i]]; printf ".";
+    end for;
+    Append(~eis_n,eis);
+  end for;
+  
+  hecke_ims := Append([HeckeOperator(eis_n[j],i): i in ids_scale, j in [1..#eis_n]|j ne ind_n],eis_n[ind_n]);
+  
+  ks := Sort(Setseq(&meet [Keys(Coefficients(i)[1*mo]): i in hecke_ims]),func<x,y|Norm(x)-Norm(y)>);
+  inds := [Index(ks,x): x in ks|x eq 0 or x*mo in nd[n]];
+
+  coeff_mat := Matrix([[Coefficients(i)[1][j]: j in ks]: i in hecke_ims]);
+  assert Rank(coeff_mat) eq Coefficient(vt,n);
+
+  pr := PivotRows(coeff_mat);
+  cpr := Matrix([coeff_mat[i]: i in pr]);
+  rs := RowSpace(cpr);
+  Qn := VectorSpace(Q,#inds);
+  to_qn := hom<rs->Qn|[Qn|[v[i]: i in inds]: v in Basis(rs)]>;
+  ker := Kernel(to_qn);
+  solns := [Solution(cpr,i): i in Basis(ker)];
+
+  h0nk := [&+[s[i]*hecke_ims[pr[i]]: i in [1..#pr]]: s in solns];
+  assert forall{x: x in inds, h in h0nk|Coefficients(h)[1*mo][ks[x]] eq 0};
+  return h0nk,M;
+end function;
