@@ -1,4 +1,8 @@
-AttachSpec("~/magmalib/hilbertmodularforms/spec");
+try AttachSpec("~/magmalib/hilbertmodularforms/spec");
+catch e
+  error "Please modify the first line of defect-new.mag to point to the spec file for the Hilbert modular forms package on your system.";
+end try;
+
 load "minimal.mag";
 // functions to calculate defects correctly
 // we assume that the unit group is the full group of totally positive units,

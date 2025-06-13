@@ -31,7 +31,7 @@ end function;
   
 fail := false;
 for nf in needed do
-  "starting field", nf;
+  "starting field defined by", DefiningPolynomial(nf);
   genus_reps, cl_reps := genus_cl_reps(nf);
   tpu,unit_list,bk,units_bk := unit_data(nf);
   zeta := AbsoluteValue(2*Roots(MinimalPolynomial(Evaluate(LSeries(nf),-1),1),Q)[1,1]);
@@ -39,12 +39,15 @@ for nf in needed do
     ps := [g*i^2: i in cl_reps];
     vols := [];
     for p in ps do
-      reds,reds_strict := list_reds(nf,units_bk,bk:id := p);
-      polys := make_polys(units_bk cat unit_list,Include(reds_strict,Minimum(p)));
+      reds_strict := list_reducers(nf,units_bk,bk:id := p);
+      "found", #reds_strict, "reducers";
+      polys := make_polyhedra(units_bk cat unit_list,Include(reds_strict,Minimum(p)));
+      "made polyhedra";
       // The discriminant times the norm comes from the covolume of the
       // dual of the ideal.  The ratio h^+/h is [O^*_{K,+}:{O^*_K}^2].
       // In other files we leave out h because it is always 1.
       vol := union_decompose(polys)*Discriminant(MaximalOrder(nf))*NarrowClassNumber(nf)/ClassNumber(nf)*Norm(p);
+      "found volume of union";
       Append(~vols,vol);
     end for;
     growth := zeta - &+vols;

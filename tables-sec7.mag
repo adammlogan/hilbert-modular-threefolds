@@ -7,23 +7,29 @@ nf0 := [rep{x: x in nfs|Discriminant(x) eq i}: i in g0disc];
 nf1 := [rep{x: x in nfs|Discriminant(x) eq i}: i in g1disc];
 cl2 := [x: x in nf0 cat nf1|NarrowClassNumber(x) eq 2];
 // table 6, the table of prime levels with geometric genus 0 or 1
-function primes_pg_01(nf)
+function primes_pg_01(nf:verbose := false, silent := false)
+  if not silent then "starting field defined by", DefiningPolynomial(nf); end if;
   hplus := NarrowClassNumber(nf);
   z := -Roots(MinimalPolynomial(Evaluate(LSeries(nf),-1),1),Q)[1,1];
   // find the rings S = O_K[x]/(x^2-tx+u) as in thm. 7.1
+  if verbose then "listing pairs of (t,u) for quadratic extensions"; end if;
   pairs := tu_pairs(nf);
+  if verbose then "found", #pairs, "pairs"; end if;
   mo := MaximalOrder(nf);
   quads := [ext<nf|Polynomial([pair[1],pair[2],1])>: pair in pairs];
   abs_quads := [AbsoluteField(i): i in quads];
   roots := [*abs_quads[i]!quads[i].1: i in [1..#pairs]*];
   ords := [Order([i*rt^j: i in Basis(mo), j in [0,1]]): rt in roots];
+  if verbose then "finding orders containing the obvious ones"; end if;
   all_ords := &join [orders_containing(i): i in ords];
+  if verbose then "finding Picard numbers and unit indices for", #all_ords, "orders"; end if;
   cs := [picard_number(i)/(2*unit_index(i,mo)): i in all_ords];
 
   np_bound := (1+2*&+cs-hplus)/(z/4)-1;
   ps := PrimesUpTo(Floor(np_bound),nf);
   prime_g0 := [];
   prime_g1 := [];
+  if verbose then "finding dimensions for spaces corresponding to", #ps, (#ps eq 1 select "prime" else "primes"); end if;
   for p in ps do
     // for this we could just use a formula rather than computing every time
     /*time*/ dim := Dimension(NewSubspace(HilbertCuspForms(nf,p)));
@@ -87,9 +93,9 @@ function format_ids(nf,ids)
   return col;
 end function;
 
-function table6_line(nf)
+function table6_line(nf: silent := false, verbose := false)
   mo := MaximalOrder(nf);
-  p0, p1 := primes_pg_01(nf);
+  p0, p1 := primes_pg_01(nf: verbose := verbose, silent := silent);
   if #p0 + #p1 eq 0 then return ""; end if;
   cols := [format_ids(nf,i): i in [p0,p1]];
   output := Sprintf("$\\cf{%o}$&$%o$&$%o$\\\\ \\hline",Discriminant(mo),cols[1],cols[2]);
@@ -108,13 +114,14 @@ function ep(nf,p)
 end function;
 
 // now table 7: we determine which ones might not be of general type.
-function table7_line(nf: genus := 1*MaximalOrder(nf))
+function table7_line(nf: genus := 1*MaximalOrder(nf), verbose := false, silent := true)
+  if verbose then "starting field defined by", DefiningPolynomial(nf), "with discriminant", Discriminant(MaximalOrder(nf)); end if;
   mo := MaximalOrder(nf);
   z := -Roots(MinimalPolynomial(Evaluate(LSeries(nf),-1),1),Q)[1,1];
   tpu,unit_list,bk,units_bk := unit_data(nf);
-  reducers := list_reducers(nf,units_bk,bk: id := genus);
-  polyhedra := make_polyhedra(units_bk cat unit_list,Include(reducers,Minimum(genus)));
-  vol := union_decompose(polyhedra:silent)*Discriminant(MaximalOrder(nf))*NarrowClassNumber(nf);
+  reducers := list_reducers(nf,units_bk,bk: id := genus, verbose := verbose, silent := silent);
+  polyhedra := make_polyhedra(units_bk cat unit_list,Include(reducers,Minimum(genus)): verbose := verbose);
+  vol := union_decompose(polyhedra:verbose := verbose, silent := silent)*Discriminant(MaximalOrder(nf))*NarrowClassNumber(nf);
 
   ep_max := (Discriminant(nf) eq 49 select 1/42 else (Discriminant(nf) eq 81 select 1/9 else 0));
   norm_bound := (2*vol+ep_max)/(2*z)-1;
@@ -130,20 +137,25 @@ function table7_line(nf: genus := 1*MaximalOrder(nf))
 end function;
 
 // table 8: nonprime levels with geometric genus at most 1
-function table8_line(nf)
-  p0 := primes_pg_01(nf);
+function table8_line(nf: verbose := false, silent := false)
+  // if verbose then "starting field defined by", DefiningPolynomial(nf); end if;
+  p0 := primes_pg_01(nf:verbose := verbose, silent := silent);
   mo := MaximalOrder(nf);
   prods := [p0];
   pg0 := []; pg1 := [];
   while #prods[#prods] gt 0 do
+    if not silent then "starting products of", #prods+1, "prime ideals"; end if;
     pr2 := {@x*y: x in prods[#prods], y in p0|(Discriminant(nf) ne 49 or Norm(x*y) le 340) and forall{p: p in Factorization(x*y)|x*y*p[1]^-1 in prods[#prods]}@};
+    if verbose then "listed", #pr2, "possible ideals, calculating dimensions"; end if;
     newpg0 := [];
     for i in pr2 do
+      if verbose then printf "."; end if;
       dim := Dimension(NewSubspace(HilbertCuspForms(nf,i)));
       if dim eq 0 then Append(~newpg0,i);
       elif dim eq 1 then Append(~pg1,i);
       end if;
     end for;
+    if verbose then printf "\n"; end if;
     pg0 cat:= newpg0;
     Append(~prods,newpg0);
   end while;
@@ -160,6 +172,8 @@ function attempt_kodaira(nf,id,wt: sl := false)
   mo := MaximalOrder(nf);
   hilb := lucant_hilb(nf,id: sl := sl);
   defs := new_defects(nf,wt div 2);
+  // correct them for the class number
+  defs := [(x-1)*NarrowClassNumber(nf)+1: x in defs];
   // this may not be the exact number of cusps; it's really the number of
   // cusps weighted by the unit indices
   weighted_cusps := &+[#UnitGroup(quo<mo|i+id/i>): i in Divisors(id)];
@@ -178,7 +192,8 @@ function attempt_kodaira(nf,id,wt: sl := false)
   end for;
   
   // ideally it could just be the Hilbert series
-  dim := (sl select Dimension(NewSubspace(HilbertCuspForms(nf,id,[wt^^Degree(nf)]))) else Coefficient(PowerSeriesRing(Q)!hilb,wt)+n_cusps);
+  // dim := (sl select Dimension(NewSubspace(HilbertCuspForms(nf,id,[wt^^Degree(nf)]))) else Coefficient(PowerSeriesRing(Q)!hilb,wt)+n_cusps);
+  dim := Coefficient(PowerSeriesRing(Q)!hilb,wt)+n_cusps;
   kd := Sign(dim-defs[wt div 2]*weighted_cusps-1);
   if kd eq -1 then output := ""; else
     type_str := (NarrowClassNumber(nf) eq 1 select " " else (sl select "\\SL_2" else "\\GL_2^+"));
@@ -187,22 +202,79 @@ function attempt_kodaira(nf,id,wt: sl := false)
   return output;
 end function;
 
-function table9_lines()
+function table9_lines(: silent := true)
+  if not silent then "working out ideals for field 1"; end if;
   table_data := [attempt_kodaira(nfs[1],2*MaximalOrder(nfs[1]),4)];
-  for i in [2,3] do
+  for i in [2,3,5] do
+    if not silent then "working out ideals for field", i; end if;
     Append(~table_data,attempt_kodaira(nfs[i],PrimesUpTo(10,nfs[i])[1]^2,4));
   end for;
+  Append(~table_data,attempt_kodaira(nfs[5],PrimesUpTo(10,nfs[5])[1]^2,4: sl := true));
+  if not silent then "working out ideals for field 6"; end if;
+  Append(~table_data,attempt_kodaira(nfs[6],PrimesUpTo(10,nfs[6])[1],4));
+  Append(~table_data,attempt_kodaira(nfs[6],PrimesUpTo(10,nfs[6])[1],4: sl := true));
   return table_data;
 end function;
 
-// and here is a quick script that actually regenerates the tables
-function create_tables()
-  table6 := [table6_line(nf): nf in nf0];
-  table7 := [table7_line(nf): nf in nf0];
-  table8 := [table8_line(nf): nf in nf0];
-  table9 := table9_lines();
+// Here is a quick script that actually regenerates the tables.
+// It would be more efficient to combine some of these functions so as not
+// to repeat expensive calls to primes_pg_01, etc., but this is not too slow.
+function create_tables_sec7(: verbose := false, silent := false)
+  cp := Cputime();
+  if not silent then "Starting table 6."; end if;
+  table6 := [table6_line(nf: verbose := verbose, silent := silent): nf in nf0];
+  "Finished table 6: time taken", Cputime(cp), "seconds.";
+  cp := Cputime();
+  if not silent then "Starting table 7."; end if;
+  table7 := [table7_line(nf: verbose := verbose, silent := silent): nf in nf0];
+  "Finished table 7: time taken", Cputime(cp), "seconds.";
+  cp := Cputime();
+  if not silent then "Starting table 8."; end if;
+  table8 := [table8_line(nf: verbose := verbose, silent := silent): nf in nf0];
+  "Finished table 8: time taken", Cputime(cp), "seconds.";
+  cp := Cputime();
+  if not silent then "Starting table 9."; end if;
+  table9 := table9_lines(: silent := false);
+  "Finished table 9: time taken", Cputime(cp), "seconds.";
   tables := [[x: x in t|x ne ""]: t in [table6,table7,table8,table9]];
   return tables;
 end function;
+
+/*
+tables := create_tables_sec7(: verbose := false, silent := false);
+tables_stored := 
+[["$\\cf{49}$&$\\p_7, (2), \\p_{13}, \\p_{29}, \\p_{43}$&$(3), \\p_{41}, \\p_{71}, \\p_{97}, \\p_{113}, \\p_{127}$\\\\ \\hline",
+"$\\cf{81}$&$\\p_3, \\p_{19}, \\p_{37}$&$(2), \\p_{17}, \\p_{73}$\\\\ \\hline",
+"$\\cf{148}$&$\\p_2, \\p_5, \\p_{13}$&$\\p_{17}, \\p_{25}$\\\\ \\hline",
+"$\\cf{169}$&$\\p_5, \\p_{13}$&$(2)$\\\\ \\hline",
+"$\\cf{229}$&$\\p_2, \\p_4, \\p_7$&$$\\\\ \\hline",
+"$\\cf{257}$&$\\p_3, \\p_5, \\p_7$&$$\\\\ \\hline",
+"$\\cf{316}$&$\\rr_2$&$\\p_2$\\\\ \\hline",
+"$\\cf{321}$&$\\rr_3$&$\\p_3, \\p_7$\\\\ \\hline",
+"$\\cf{361}$&$$&$\\p_7$\\\\ \\hline",
+"$\\cf{404}$&$$&$\\p_2$\\\\ \\hline",
+"$\\cf{469}$&$$&$\\p_4$\\\\ \\hline",
+"$\\cf{568}$&$$&$\\rr_2$\\\\ \\hline" ],
+    ["$\\cf{49}$&$$&$\\p_7, (2)$\\\\ \\hline",
+"$\\cf{81}$&$$&$\\p_3$\\\\ \\hline",
+"$\\cf{148}$&$$&$\\p_2$\\\\ \\hline",
+"$\\cf{229}$&$+$&$\\p_2$\\\\ \\hline",
+"$\\cf{257}$&$+$&$\\p_3$\\\\ \\hline" ],
+    ["$\\cf{49}$&$$&$\\p_7^2, 2\\p_7, (4), \\p_7\\p_{13}, \\p_{13}\\p_{13}'$\\\\ \\hline",
+"$\\cf{81}$&$\\p_3^2$&$(3), \\p_3\\p_{19}$\\\\ \\hline",
+"$\\cf{148}$&$\\p_2^2, \\p_2\\p_5$&$(2), \\p_2^2\\p_5$\\\\ \\hline",
+"$\\cf{169}$&$$&$\\p_5\\p_5'$\\\\ \\hline",
+"$\\cf{229}$&$\\p_2^2, \\p_2^3$&$$\\\\ \\hline",
+"$\\cf{316}$&$\\rr_2^2$&$\\rr_2^3$\\\\ \\hline",
+"$\\cf{321}$&$\\rr_3^2$&$$\\\\ \\hline" ],
+    ["$\\cf{49}$&$(2)$&$ $&$1$&$4$&$6$&$4$\\\\ \\hline",
+"$\\cf{81}$&$\\p_3^2$&$ $&$0$&$4$&$13$&$12$\\\\ \\hline",
+"$\\cf{148}$&$\\p_2^2$&$ $&$1$&$4$&$18$&$15$\\\\ \\hline",
+"$\\cf{229}$&$\\p_2^2$&$\\GL_2^+$&$1$&$4$&$33$&$27$\\\\ \\hline",
+"$\\cf{229}$&$\\p_2^2$&$\\SL_2$&$1$&$4$&$30$&$27$\\\\ \\hline",
+"$\\cf{257}$&$\\p_3$&$\\GL_2^+$&$1$&$4$&$22$&$18$\\\\ \\hline",
+"$\\cf{257}$&$\\p_3$&$\\SL_2$&$1$&$4$&$20$&$18$\\\\ \\hline" ]
+];
+assert tables eq tables_stored;
 
 

@@ -19,7 +19,8 @@ function unit_data(nf)
   tpu := tpu_basis(nf);
   unit_list := unit_places(nf,tpu);
   bk := get_bk(unit_list);
-  units_bk := units_to_bd(nf,tpu,bk);
+  // !! changed bk to Degree(nf)*bk, in accordance with the paper
+  units_bk := units_to_bd(nf,tpu,Degree(nf)*bk);
   units_bk cat:= [x: x in unit_list|x notin units_bk];
   return tpu,unit_list,bk,units_bk;
 end function;
@@ -30,26 +31,89 @@ end function;
 // cone and intersect it with the half-space where tr(xr) < 1.
 // This is one of the polyhedra that forms the region in which we have to
 // count points.
-function spike(units,reducer)
+
+// This is a new version which is sometimes good to use.
+// But sometimes it bumps into a Magma bug, it seems; for the 7th
+// quartic field, for example.
+
+// To demonstrate the problem for that field, use the commented-out line
+// to define pol, then run through the loop.  Everything is fine, but
+// when you impose the inequalities one at a time something bad happens.
+function spike(units,reducer: verbose := false)
   nf := NumberField(Universe(units));
   mo := MaximalOrder(nf);
-  ineqs := Append([ineq(x-1,mo): x in units],ineq(-reducer,mo));
-  pol := PolyhedronWithInequalities(ineqs,Append([0: i in units],-1));
+  // this seems to make things faster; the bigger trace often doesn't
+  // actually contribute anything
+  Sort(~units,func<x,y|Trace(x)-Trace(y)>);
+  // ineqs := Append([ineq(x-1,mo): x in units],ineq(-reducer,mo));
+  ineqs := {@ineq(x-1,mo): x in units|x ne 1@};
+  if verbose then "created", #ineqs, "inequalities"; end if;
+  // pol := PolyhedronWithInequalities(ineqs,Append([0: i in units],-1));
+  pol := PolyhedronWithInequalities([ineq(-reducer,mo)],[-1]);
+  for i in ineqs do
+    if not IsPolytope(pol) or exists{v: v in Vertices(pol)|&+[Eltseq(v)[j]*i[j]: j in [1..Degree(nf)]] lt 0} then
+      pol meet:= HalfspaceToPolyhedron(i,0);
+    end if;
+    if verbose then
+      printf ".";
+      if Index(ineqs,i) mod 10 eq 0 then
+        "polytope after", Index(ineqs,i), "steps:", pol;
+      end if;
+    end if;
+  end for;
   return pol;
 end function;
 
+function trace_minimal_cone(units: verbose := false)
+  nf := NumberField(Universe(units));
+  mo := MaximalOrder(nf);
+  // this seems to make things faster; the bigger trace often doesn't
+  // actually contribute anything
+  Sort(~units,func<x,y|Trace(x)-Trace(y)>);
+  ineqs := {@ineq(x-1,mo): x in units|x ne 1@};
+  if verbose then "created", #ineqs, "inequalities"; end if;
+  pol := PolyhedronWithInequalities([ineq(-1,mo)],[-1]);
+  for i in ineqs do
+    if not IsPolytope(pol) or exists{v: v in Vertices(pol)|&+[Eltseq(v)[j]*i[j]: j in [1..Degree(nf)]] lt 0} then
+      // in 2.28-3 there is a bug in meet:=, apparently, which has been
+      // fixed in subsequent Magma versions.
+      pol := pol meet HalfspaceToPolyhedron(i,0);
+    end if;
+    if verbose then
+      printf ".";
+      if Index(ineqs,i) mod 10 eq 0 then
+        "polytope after", Index(ineqs,i), "steps:", pol;
+      end if;
+    end if;
+  end for;
+  cone := Cone(Vertices(pol));
+  // We want to convert it to a polyhedron with the same support,
+  // which seems a bit awkward.
+  lat := Universe(Vertices(pol));
+  polcon := Polytope([lat!0])+cone;
+  // another way:
+  /* id := map<lat->lat|x :-> x>;
+  polcon := Polyhedron(cone,id,lat!0);*/
+  // could also do pol+cone but slow
+  return polcon, pol;
+end function;
+  
 // build the polyhedron of trace-minimal elements
-min_poly := func<units|spike(units,1)>;
+min_poly := func<units,verbose|spike(units,1:verbose := verbose)>;
 
 // function to list the reducers of an ideal, by default (1)
-function list_reducers(nf,units_bk,bk:verbose := false, threshold := 20, id := false, silent := false)
+function list_reducers(nf,units_bk,bk:verbose := false, threshold := 10, id := false, silent := false)
+  if not silent then "listing reducers for field defined by polynomial", DefiningPolynomial(nf); end if;
   if verbose then "creating trace-minimal cone"; end if;
   mo := MaximalOrder(nf);
   if id cmpeq false then id := 1*mo; end if;
-  mp := min_poly(units_bk);
+  // mp := min_poly(units_bk,verbose);
+  tmc,tmc_1 := trace_minimal_cone(units_bk: verbose := verbose);
+  // tmc_1 := tmc meet HalfspaceToPolyhedron(ineq(-1,mo),-1);
   // convert vertices back into elements of the number field
-  verts := [nf!&+[Eltseq(i)[j]*Basis(mo)[j]: j in [1..Degree(nf)]]: i in Vertices(mp)|Eltseq(i) ne [0^^Degree(nf)]];
-  if verbose then printf "cone found, %o vertices\n", #verts; end if;
+  // verts := [nf!&+[Eltseq(i)[j]*Basis(mo)[j]: j in [1..Degree(nf)]]: i in Vertices(mp)|Eltseq(i) ne [0^^Degree(nf)]];
+  verts := [nf!&+[Eltseq(i)[j]*Basis(mo)[j]: j in [1..Degree(nf)]]: i in Vertices(tmc_1)|Eltseq(i) ne [0^^Degree(nf)]];
+  if not silent then printf "cone found, %o vertices\n", #verts; end if;
   id_reducers := []; id_reducers_strict := [];
   for v in verts do
     if verbose then "finding reducers for", v; end if;
@@ -65,14 +129,15 @@ function list_reducers(nf,units_bk,bk:verbose := false, threshold := 20, id := f
   // some reducers could reduce more than one extremal ray, so we join them
   reducers := &join id_reducers;
   reducers_strict := &join id_reducers_strict;
-  return /*reducers,*/reducers_strict;
+  if not silent then "finished, found", #reducers_strict, "reducers."; end if;
+  return /*reducers,*/reducers_strict,tmc;
 end function;
   
 // Make the polyhedra to feed to a union-volume-finding function.
-function make_polyhedra(units,reducers)
+function make_polyhedra(units,reducers: verbose := false)
   // make sure that the minimum of the ideal is among the reducers
   // if 1 notin reducers then Include(~reducers,1); end if;
-  polyhedra := [spike(units,i): i in reducers];
+  polyhedra := [spike(units,i:verbose := verbose): i in reducers];
   return polyhedra;
 end function;
 
@@ -206,7 +271,7 @@ function union_decompose(polyhedra: verbose := false, silent := false)
   if verbose then "computing volumes"; end if;
   Sort(~polyhedra,func<x,y|Volume(x)-Volume(y)>);
   // #polyhedra, "polyhedra";
-  if verbose then "removing polyhedra contained in others"; end if;
+  if not silent then "removing polyhedra contained in others"; end if;
   exclude := {@@};
   // we could also notice that if P is contained in Q but not R, then Q
   // is not contained in R.  But I'm not sure it's worth the trouble.
@@ -288,11 +353,13 @@ function union_decompose(polyhedra: verbose := false, silent := false)
 end function;
 
 // combine the above into a single function
-function cusp_vol(nf,id)
+function cusp_vol(nf,id: verbose := false)
   tpu,unit_list,bk,units_bk := unit_data(nf);
-  reducers/*,reducers_strict*/ := list_reducers(nf,units_bk,bk: id := id);
-  polyhedra := make_polyhedra(units_bk cat unit_list,Include(reducers/*_strict*/,Minimum(id)));
-  vol := union_decompose(polyhedra); 
+  reducers/*,reducers_strict*/,tmc := list_reducers(nf,units_bk,bk: id := id, verbose := verbose);
+  // polyhedra := make_polyhedra(units_bk cat unit_list,Include(reducers/*_strict*/,Minimum(id)): verbose := verbose);
+  mo := MaximalOrder(nf);
+  polyhedra := [tmc meet HalfspaceToPolyhedron(ineq(-r,mo),-1): r in Include(reducers,Minimum(id))];
+  vol := union_decompose(polyhedra: verbose := verbose); 
   vol *:= Discriminant(MaximalOrder(nf))*NarrowClassNumber(nf)/ClassNumber(nf)*Norm(id);
   return vol;
 end function;

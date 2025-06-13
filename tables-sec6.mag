@@ -13,14 +13,16 @@ cl2 := [x: x in nf0 cat nf1|NarrowClassNumber(x) eq 2];
 // create a line in our tables
 // this assumes that the class number is 1, since otherwise there are
 // more cusps
-function table_line(nf,id: nclassno := true)
+function table_line(nf,id: nclassno := true,verbose := false, silent := false)
   cp := Cputime();
   tpu,unit_list,bk,units_bk := unit_data(nf);
   // reducers,reducers_strict := list_reducers(nf,units_bk,bk: id := id, silent);
-  reducers := list_reducers(nf,units_bk,bk: id := id, silent);
-  polyhedra := make_polyhedra(units_bk cat unit_list,Include(reducers,Minimum(id)));
+  reducers,tmc := list_reducers(nf,units_bk,bk: id := id, silent := silent, verbose := verbose);
+  // polyhedra := make_polyhedra(units_bk cat unit_list,Include(reducers,Minimum(id)));
+  mo := MaximalOrder(nf);
+  polyhedra := [tmc meet HalfspaceToPolyhedron(ineq(-r,mo),-1): r in Include(reducers,Minimum(id))];
   cpp := Cputime();
-  vol,ct := union_decompose(polyhedra:silent); 
+  vol,ct := union_decompose(polyhedra:silent := silent,verbose := verbose); 
   cpp := Cputime(cpp);
   vol *:= Discriminant(MaximalOrder(nf))*NarrowClassNumber(nf)*Norm(id);
   zeta := AbsoluteValue(2*Roots(MinimalPolynomial(Evaluate(LSeries(nf),-1),1),Q)[1,1]);
@@ -35,31 +37,127 @@ end function;
 
 // give the LaTeX code for the lines of a table such as those in section 6
 // of the paper
-function make_table(flds:principal := true,nclassno := true);
+function make_table(flds:principal := true,nclassno := true,verbose := false,silent := false);
+  if not silent then "making table involving", #flds, (#flds eq 1 select "field" else "fields"); end if;
   lines := [];
   for fld in flds do
+    if not silent then "starting field", Index(flds,fld), "with defining polynomial", DefiningPolynomial(fld); end if;
     if principal then
       id := 1*MaximalOrder(fld);
-      Append(~lines,table_line(fld,id:nclassno := nclassno));
+      Append(~lines,table_line(fld,id:nclassno := nclassno,verbose := verbose,silent := false));
     else
       if NarrowClassNumber(fld) eq 2 then
         ids := PrimesUpTo(100,fld);
         np := rep{x: x in ids|not IsNarrowlyPrincipal(x)};
-        Append(~lines,table_line(fld,np:nclassno := nclassno));
+        Append(~lines,table_line(fld,np:nclassno := nclassno,verbose := verbose, silent := false));
       end if;
     end if;
     end for;
   return lines;
 end function;
 
-function create_tables()
-  table1 := make_table([x: x in nf0|Discriminant(MaximalOrder(x)) lt 473]);
-  Insert(~table1,6,make_table([nf0[5]]: principal := false)[1]);
-  table2 := make_table([x: x in nf0|Discriminant(MaximalOrder(x)) ge 473]);
-  table3 := make_table(nf1);
-  table4 := make_table(nf0:principal := false,nclassno := false);
-  table5 := make_table(nf1:principal := false,nclassno := false);
-  return table1,table2,table3,table4,table5;
+function create_tables_sec6(:verbose := false, silent := false)
+  cp := Cputime();
+  table1 := make_table([x: x in nf0|Discriminant(MaximalOrder(x)) lt 473]:verbose := verbose, silent := silent);
+  // Insert(~table1,6,make_table([nf0[5]]: principal := false,verbose := verbose, silent := silent)[1]); // changed my mind
+  "Finished table 1: time taken", Cputime(cp), "seconds.";
+  cp := Cputime();
+  table2 := make_table([x: x in nf0|Discriminant(MaximalOrder(x)) ge 473]:verbose := verbose, silent := silent);
+  "Finished table 2: time taken", Cputime(cp), "seconds.";
+  cp := Cputime();
+  table3 := make_table(nf1:verbose := verbose, silent := silent);
+  "Finished table 3: time taken", Cputime(cp), "seconds.";
+  cp := Cputime();
+  table4 := make_table(nf0:principal := false,nclassno := false,verbose := verbose, silent := silent);
+  "Finished table 4: time taken", Cputime(cp), "seconds.";
+  cp := Cputime();
+  table5 := make_table(nf1:principal := false,nclassno := false,verbose := verbose, silent := silent);
+  "Finished table 5: time taken", Cputime(cp), "seconds.";
+  return [[x: x in t|x ne ""]: t in [table1,table2,table3,table4,table5]];
 end function;
 
+function compare_tables_sec6(t1,t2:pos := 6)
+  if #t1 ne #t2 then return false; end if;
+  for l in [1..#t1] do
+    inds := [[x: x in [1..#t[l]]|t[l,x] eq "&"]: t in [t1,t2]];
+    if exists{m: m in inds|Min(m) le pos} then return false; end if;
+    if t1[l][1..inds[1,pos]] ne t2[l][1..inds[2,pos]] then return false; end if;
+  end for;
+  return true;
+end function;
 
+t1 := ["$\\cf{49}$&$2/21$&$5/12$&$1$&$0$&$0$&$0.250$&$0.010$ \\ \hline",
+"$\\cf{81}$&$2/9$&$3/4$&$1$&$0$&$0$&$0.130$&$0.000$ \\ \hline",
+"$\\cf{148}$&$2/3$&$55/36$&$1$&$7$&$8$&$0.950$&$0.700$ \\ \hline",
+"$\\cf{169}$&$2/3$&$17/12$&$1$&$0$&$0$&$0.190$&$0.000$ \\ \hline",
+"$\\cf{229}$&$4/3$&$3$&$2$&$0$&$0$&$0.240$&$0.000$ \\ \hline",
+"$\\cf{257}$&$4/3$&$26/9$&$2$&$0$&$0$&$0.200$&$0.000$ \\ \hline",
+"$\\cf{316}$&$8/3$&$137/36$&$1$&$60$&$35$&$7.160$&$5.500$ \\ \hline",
+"$\\cf{321}$&$2$&$8/3$&$1$&$17$&$21$&$3.050$&$2.510$ \\ \hline",
+"$\\cf{361}$&$2$&$29/12$&$1$&$0$&$0$&$0.390$&$0.000$ \\ \hline",
+"$\\cf{404}$&$10/3$&$143/36$&$1$&$94$&$55$&$8.640$&$6.920$ \\ \hline",
+"$\\cf{469}$&$4$&$49/12$&$1$&$58$&$25$&$6.330$&$3.990$ \\ \hline" ];
+
+t2 := [
+"$\\cf{473}$&$10/3$&$79/24$&$1$&$19$&$22$&$3.750$&$3.020$ \\ \hline",
+"$\\cf{564}$&$6$&$1021/180$&$1$&$227$&$84$&$25.230$&$20.530$ \\ \hline",
+"$\\cf{568}$&$20/3$&$1141/180$&$1$&$477$&$60$&$28.130$&$17.700$ \\ \hline",
+"$\\cf{621}$&$20/3$&$413/72$&$1$&$219$&$95$&$34.110$&$28.080$ \\ \hline",
+"$\\cf{697}$&$16/3$&$67/12$&$2$&$0$&$0$&$0.330$&$0.010$ \\ \hline",
+"$\\cf{733}$&$8$&$221/36$&$1$&$251$&$75$&$30.510$&$22.020$ \\ \hline",
+"$\\cf{756}$&$26/3$&$469/72$&$1$&$297$&$102$&$55.440$&$32.830$ \\ \hline",
+"$\\cf{761}$&$20/3$&$13/2$&$2$&$0$&$0$&$0.510$&$0.010$ \\ \hline",
+"$\\cf{785}$&$22/3$&$29/6$&$1$&$71$&$76$&$19.080$&$16.820$ \\ \hline",
+"$\\cf{788}$&$28/3$&$113/12$&$2$&$50$&$16$&$7.850$&$2.930$ \\ \hline",
+"$\\cf{837}$&$32/3$&$1381/180$&$1$&$1154$&$95$&$75.750$&$41.770$ \\ \hline",
+"$\\cf{892}$&$40/3$&$1091/90$&$2$&$141$&$54$&$20.220$&$13.610$ \\ \hline",
+"$\\cf{940}$&$44/3$&$703/72$&$1$&$1209$&$194$&$154.230$&$117.120$ \\ \hline",
+"$\\cf{985}$&$28/3$&$70/9$&$2$&$0$&$0$&$0.660$&$0.010$ \\ \hline",
+"$\\cf{993}$&$34/3$&$2377/360$&$1$&$120$&$68$&$35.030$&$27.330$ \\ \hline",
+"$\\cf{1076}$&$44/3$&$719/60$&$2$&$28$&$11$&$5.590$&$3.580$ \\ \hline",
+"$\\cf{1257}$&$16$&$101/9$&$2$&$15$&$15$&$5.880$&$4.540$ \\ \hline",
+"$\\cf{1300}$&$18$&$629/72$&$1$&$742$&$94$&$102.790$&$59.860$ \\ \hline",
+"$\\cf{1345}$&$46/3$&$779/120$&$1$&$95$&$143$&$55.150$&$50.250$ \\ \hline",
+"$\\cf{1396}$&$64/3$&$535/36$&$2$&$45$&$19$&$9.950$&$5.140$ \\ \hline",
+"$\\cf{1489}$&$16$&$134/15$&$2$&$0$&$0$&$0.920$&$0.000$ \\ \hline",
+"$\\cf{1593}$&$64/3$&$253/20$&$2$&$7$&$8$&$3.100$&$1.520$ \\ \hline"];
+
+t3 := [
+"$\\cf{1016}$&$52/3$&$124/9$&$2$&$842$&$70$&$85.090$&$29.070$ \\ \hline",
+"$\\cf{1101}$&$52/3$&$247/24$&$1$&$3198$&$163$&$278.630$&$125.560$ \\ \hline",
+"$\\cf{1129}$&$44/3$&$109/10$&$2$&$41$&$27$&$12.080$&$9.490$ \\ \hline",
+"$\\cf{1229}$&$56/3$&$37/3$&$2$&$64$&$43$&$20.580$&$17.330$ \\ \hline",
+"$\\cf{1369}$&$14$&$65/12$&$1$&$0$&$0$&$1.300$&$0.000$ \\ \hline",
+"$\\cf{1373}$&$68/3$&$1861/168$&$1$&$1351$&$171$&$173.030$&$109.780$ \\ \hline",
+"$\\cf{1425}$&$58/3$&$1519/180$&$1$&$481$&$145$&$97.420$&$72.400$ \\ \hline",
+"$\\cf{1492}$&$68/3$&$667/45$&$2$&$28$&$17$&$7.980$&$5.880$ \\ \hline",
+"$\\cf{1573}$&$76/3$&$2671/252$&$1$&$1088$&$230$&$234.060$&$179.500$ \\ \hline",
+"$\\cf{1620}$&$86/3$&$37/3$&$1$&$4708$&$274$&$623.380$&$300.940$ \\ \hline",
+"$\\cf{1765}$&$92/3$&$658/45$&$2$&$908$&$68$&$238.690$&$36.970$ \\ \hline",
+"$\\cf{1825}$&$68/3$&$401/36$&$2$&$3$&$4$&$2.810$&$1.230$ \\ \hline",
+"$\\cf{1929}$&$92/3$&$667/45$&$2$&$192$&$57$&$84.140$&$26.730$ \\ \hline",
+"$\\cf{1937}$&$28$&$397/30$&$2$&$18$&$26$&$12.890$&$10.270$ \\ \hline"];
+
+t4 := [
+"$\\cf{229}$&$4/3$&$14/9$&$8$&$9$&$1.360$&$0.850$ \\ \hline",
+"$\\cf{257}$&$4/3$&$1$&$20$&$16$&$1.960$&$1.580$ \\ \hline",
+"$\\cf{697}$&$16/3$&$7/6$&$77$&$27$&$5.020$&$3.900$ \\ \hline",
+"$\\cf{761}$&$20/3$&$9/4$&$37$&$12$&$2.590$&$1.610$ \\ \hline",
+"$\\cf{788}$&$28/3$&$32/9$&$561$&$61$&$28.220$&$18.210$ \\ \hline",
+"$\\cf{892}$&$40/3$&$113/18$&$547$&$66$&$34.480$&$22.740$ \\ \hline",
+"$\\cf{985}$&$28/3$&$16/9$&$109$&$47$&$12.220$&$10.000$ \\ \hline",
+"$\\cf{1076}$&$44/3$&$127/30$&$281$&$67$&$25.830$&$20.500$ \\ \hline",
+"$\\cf{1257}$&$16$&$53/12$&$141$&$74$&$23.270$&$19.960$ \\ \hline",
+"$\\cf{1396}$&$64/3$&$40/9$&$1274$&$121$&$82.220$&$57.000$ \\ \hline",
+"$\\cf{1489}$&$16$&$4/3$&$182$&$40$&$17.560$&$12.700$ \\ \hline",
+"$\\cf{1593}$&$64/3$&$311/90$&$417$&$104$&$49.450$&$37.640$ \\ \hline"];
+
+t5 := [
+"$\\cf{1016}$&$52/3$&$73/9$&$3414$&$117$&$220.450$&$96.780$ \\ \hline",
+"$\\cf{1129}$&$44/3$&$173/36$&$472$&$39$&$33.160$&$18.250$ \\ \hline",
+"$\\cf{1229}$&$56/3$&$313/45$&$255$&$97$&$48.970$&$40.720$ \\ \hline",
+"$\\cf{1492}$&$68/3$&$35/9$&$850$&$146$&$90.950$&$67.550$ \\ \hline",
+"$\\cf{1765}$&$92/3$&$382/45$&$3649$&$100$&$310.810$&$75.830$ \\ \hline",
+"$\\cf{1825}$&$68/3$&$35/18$&$342$&$60$&$52.250$&$36.420$ \\ \hline",
+"$\\cf{1929}$&$92/3$&$53/9$&$1789$&$112$&$190.440$&$75.420$ \\ \hline",
+"$\\cf{1937}$&$28$&$21/4$&$134$&$101$&$73.210$&$64.580$ \\ \hline"];

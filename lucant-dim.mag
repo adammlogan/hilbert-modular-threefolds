@@ -182,7 +182,9 @@ function tu_pairs(nf)
   tps := [ugto(i@@toq): i in q];
   // Now we need the pairs for which t^2 - 4u is totally negative.
   rp := RealPlaces(nf);
-  pairs := [[t,u]: u in box_elements(nf,1*mo,[-2*Sqrt(Evaluate(t,r)): r in rp],[2*Sqrt(Evaluate(t,r)): r in rp]), t in tps];
+  // pairs := [[t,u]: u in box_elements(nf,1*mo,[-2*Sqrt(Evaluate(t,r)): r in rp],[2*Sqrt(Evaluate(t,r)): r in rp]), t in tps];
+  // thanks to the technical reviewer
+  pairs := [[t,u]: u in ElementsInAHyperCube(GradedRingOfHMFs(nf,1),1*mo,[-2*Sqrt(Evaluate(t,r)): r in rp],[2*Sqrt(Evaluate(t,r)): r in rp]), t in tps];
   // dump (x +- 1)^2
   pairs := [x: x in pairs|IsIrreducible(Polynomial([x[1],x[2],1]))];
   assert forall{x: x in pairs|[x[1],-x[2]] in pairs};

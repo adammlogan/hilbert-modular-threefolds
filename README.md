@@ -15,8 +15,8 @@ AttachSpec("~/magmalib/hilbertmodularforms/spec");
 
 to refer to the correct path on your system.
 
-We briefly describe the individual files in the package.  Each file begins
-with a brief listing of functions intended for users.
+We briefly describe the individual files of Magma code in the package.
+Each file begins with a brief listing of functions intended for users.
 
 algorithms.mag      Functions that implement each of the numbered algorithms in the paper. <br>
 cq-defect.mag       Functions to calculate defects of cyclic quotient singularities. <br>
@@ -36,6 +36,8 @@ qz.mag              Define Q, Z to be the rationals and integers respectively. <
 tables-sec6.mag     Recompute the tables in section 6. <br>
 tables-sec7.mag     Recompute the tables in section 7. <br>
 
+cubic-field-polyhedra.ipynb  Jupyter notebook giving an interactive view of the polyhedra for one small cubic field (requires numpy, scipy, matplotlib, mpl_toolkits). <br>
+                                                                                                                                                       
 All computations were done using Magma 2.28-3 on the author's laptop, a
 machine with 16 gigabytes of memory and an Intel i7-11390H processor
 with 8 cores running at 3.40 GHz.
