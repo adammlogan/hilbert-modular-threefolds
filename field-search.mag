@@ -1,0 +1,13 @@
+load "manycubics.mag";
+fields := make_data();
+nfs := [x`field: x in fields];
+inds := [];
+rhs := 16*Pi(RealField())^6/27;
+for i in [1..#nfs] do
+  lhs := Discriminant(MaximalOrder(nf))*Evaluate(LSeries(nf),2)/(ClassNumber(nf)*Regulator(nf)) where nf is nfs[i];
+  if lhs-10^-10 lt rhs then printf "%o ", i; Append(~inds,i); end if;
+  if i mod 100 eq 0 then printf "."; end if;
+end for;
+"done, indices are", inds;
+
+                            

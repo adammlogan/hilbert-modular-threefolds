@@ -24,12 +24,13 @@ defect-new.mag      A function to compute individual defects of cusps. <br>
 dimension.mag       A function to evaluate the Thomas-Vasquez formula for the Hilbert series of the ring of level 1 forms. <br>
 ex61-63.mag         Code to reproduce examples 6.2 and 6.4 in the paper. <br>
 ex67.mag            Code to reproduce example 6.8 in the paper. <br>
+field-search.mag    Function to search for fields that do not satisfy the general type condition of Tsuyumine-Grundman (cf. Hypothesis 6.14).
 fields.mag          List of cubic fields (from the LMFDB). <br>
 grundman-chi.mag    A function that evaluates the genus of a Hilbert modular threefold for level 1. <br>
-loadall.mag         Load all the files, except ex*.mag and maybe-gen-type.mag which are scripts rather than collections of functions, and the long list of cubic fields. <br>
+loadall.mag         Load all the files, except ex*.mag, field-search.mag, and maybe-gen-type.mag which are scripts rather than collections of functions, and the long list of cubic fields. <br>
 lucant-dim.mag      Evaluate the dimension formula given in section 5.1 of \cite{hmf-mult}. <br>
 manycubics.mag      Long list of cubic fields, downloaded from the LMFDB. <br>
-maybe-gen-type.mag  Script to look for additional fields for which the Hilbert modular threefold may not be of general type. <br>
+maybe-gen-type.mag  Script to look for additional fields for which the Hilbert modular threefold may not be of general type (see Hypothesis 6.14). <br>
 minimal.mag         Functions to determine the trace-minimal cone and the set of reducers. <br>
 polyhedra.mag       Functions to set up the union of polyhedra and calculate its volume. <br>
 qz.mag              Define Q, Z to be the rationals and integers respectively. <br>
