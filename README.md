@@ -22,8 +22,8 @@ algorithms.mag      Functions that implement each of the numbered algorithms in 
 cq-defect.mag       Functions to calculate defects of cyclic quotient singularities. <br>
 defect-new.mag      A function to compute individual defects of cusps. <br>
 dimension.mag       A function to evaluate the Thomas-Vasquez formula for the Hilbert series of the ring of level 1 forms. <br>
-ex61-63.mag         Code to reproduce examples 6.1 and 6.3 in the paper. <br>
-ex67.mag            Code to reproduce example 6.7 in the paper. <br>
+ex61-63.mag         Code to reproduce examples 6.2 and 6.4 in the paper. <br>
+ex67.mag            Code to reproduce example 6.8 in the paper. <br>
 fields.mag          List of cubic fields (from the LMFDB). <br>
 grundman-chi.mag    A function that evaluates the genus of a Hilbert modular threefold for level 1. <br>
 loadall.mag         Load all the files, except ex*.mag and maybe-gen-type.mag which are scripts rather than collections of functions, and the long list of cubic fields. <br>
