@@ -7,6 +7,7 @@
 // get_bk            compute the bound b_K (see paper)
 // intpts            find integral points of a polyhedron
 // reducers_rigorous find the reducers of a given ideal
+load "normaliz.mag";
 
 // basis of totally positive units
 function tpu_basis(nf)
@@ -103,18 +104,55 @@ function reducer_bound(nf,bk,id)
   return bds;
 end function;
 
+function box(poly)
+  // construct a bounding box for the polyhedron
+  d := Dimension(Ambient(poly));
+  if IsEmpty(poly) then return [-1/2: i in [1..d]], [-1/2: i in [1..d]]; end if;
+  lb := [Ceiling(Min([Eltseq(v)[i]: v in Vertices(poly)]))-1/2: i in [1..d]];
+  ub := [Floor(Max([Eltseq(v)[i]: v in Vertices(poly)]))+1/2: i in [1..d]];
+  return lb,ub;
+end function;
+
+// this is much better, if you have normaliz installed
+// is there a way to get normaliz to find the minimal ones automatically?
+function intpts_normaliz(poly)
+  verts := [Eltseq(i): i in Vertices(poly)];
+  filename := temp_filename();
+  str := Sprintf("amb_space %o\nvertices %o\n",#verts[1],#verts);
+  for v in verts do
+    for i in Append(v,1) do str *:= Sprintf("%o ",i); end for;
+    str *:= "\n";
+  end for;
+  str *:= "LatticePoints\n";
+  // This breaks the lines in a way that confuses normaliz.
+  // PrintFile(filename*".in",str);
+  WriteBinary(filename*".in",BString(str));
+  System(Sprintf("normaliz %o.in",filename));
+  res := Split(Read(filename*".out"));
+  System(Sprintf("rm %o.*",filename));
+  ind := rep{x: x in [2..#res]|Regexp("lattice points",res[x])};
+  npts := StringToInteger(Split(res[1]," ")[1]);
+  pts := [[StringToInteger(i): i in Split(res[j]," ")[1..d]]: j in [ind+1..ind+npts]] where d is #verts[1];
+  return pts;
+end function;  
+  
 // this seems to me like the obvious way to find integral points;
 // I'm surprised that it's often faster than Magma
 // the name is somewhat obsolete, since now it returns boundary points too
 // the "strict" parameter decides whether to exclude boundary points
 // (default is false, i.e., don't exclude them)
-function intpts(poly:depth := 0, verbose := false, threshold := 20, strict := false)
+function intpts(poly:depth := 0, verbose := false, threshold := 20, strict := false, use_normaliz := true)
+  if IsEmpty(poly) then return {@@}; end if;
+  if use_normaliz then
+    try
+      pts := intpts_normaliz(poly);
+      return pts;
+    catch e; end try;
+  end if;
   tl := Universe(Vertices(poly));
   d := Dimension(poly);
-  // construct a bounding box for the polyhedron
-  lb := [Ceiling(Min([Eltseq(v)[i]: v in Vertices(poly)]))-1/2: i in [1..d]];
-  ub := [Floor(Max([Eltseq(v)[i]: v in Vertices(poly)]))+1/2: i in [1..d]];
-  dists := [Z|ub[i]-lb[i]: i in [1..d]];
+  lb,ub := box(poly);
+  dists := [Z|ub[i]-lb[i]: i in [1..#lb]];
   if verbose then " "^depth*"considering polyhedron with bounding box sizes", dists; end if;
   md,ind := Max(dists);
   if md le threshold then
@@ -135,8 +173,19 @@ function intpts(poly:depth := 0, verbose := false, threshold := 20, strict := fa
     bis := (ub[ind]+lb[ind])/2; if bis in Z then bis +:= 1/2; end if;
     halves := [HalfspaceToPolyhedron([i eq ind select s else 0: i in [1..d]],s*bis): s in [1,-1]];
     halfpolys := [h meet poly: h in halves];
-    return &join [intpts(i: depth := depth+1, verbose := verbose, threshold := threshold): i in halfpolys];
+    return &join [intpts(i: depth := depth+1, verbose := verbose, threshold := threshold, use_normaliz := false): i in halfpolys];
   end if;
+end function;
+
+function test_normaliz()
+  poly := Polyhedron([[0,0],[1,0],[0,1]]);
+  try
+    pts := intpts_normaliz(poly);
+    assert Set(pts) eq {[0,0],[1,0],[0,1]};
+    return true;
+  catch e
+    return false;
+  end try;
 end function;
 
 // This function computes the elements of an ideal that reduce a given element
@@ -144,7 +193,9 @@ end function;
 // work for all fractional ideals.  The method is just to find the appropriate
 // simplex in which all the reducers must lie--i.e., totally positive and
 // multiplying the trace by less than the minimum of the ideal.
-function reducers_rigorous(nf,v,bk: scale := 100, verbose := false, threshold := 20, id := false)
+// However, I'm not absolutely sure about the rigour, so we now have
+// a new version.
+function old_reducers_rigorous(nf,v,bk: scale := 100, verbose := false, threshold := 20, id := false)
   error if scale notin Z or scale le 0, "scaling factor must be a positive integer";
   mo := MaximalOrder(nf);
   if id cmpeq false then id := 1*mo; end if;
@@ -178,4 +229,290 @@ function reducers_rigorous(nf,v,bk: scale := 100, verbose := false, threshold :=
   if verbose and exists{x: x in nonp|x ne 0} then "excluded elements", nonp diff {@0@}; end if;
   id_red diff:= nonp;
   return id_red;
+end function;
+
+// given a polyhedron, return a new polyhedron where we try to impose the
+// condition that real embedding #pl is at most bd
+function upper_bound_embedding(poly,nf,pl,bd: scale := 0)
+  if IsEmpty(poly) then return poly; end if;
+  lb,ub := box(poly);
+  scale := Max(Append(lb cat ub,scale));
+  mo := MaximalOrder(nf);
+  rp := RealPlaces(nf);
+  embs := [Evaluate(i,rp[pl]): i in Basis(mo)];
+  sc_embs := [Ceiling(i*scale)/scale: i in embs];
+  // Really we want to impose the linear condition on embs, but if we
+  // impose it on sc_embs the error is at most 1/scale*the sum of the
+  // largest bounds.
+  bound_err := 1/scale*&+[Max(AbsoluteValue(lb[i]),AbsoluteValue(ub[i])): i in [1..Degree(nf)]];
+  hs := ChangeAmbient(HalfspaceToPolyhedron([-i: i in sc_embs],-(bd+bound_err)),Ambient(poly));
+  new_poly := poly meet hs;
+  return new_poly;
+end function;
+
+// much faster way, only O(n log n) rather than O(n^2) ... or so I thought.
+// The line where we construct ordsets is actually O(n^2).
+// I suspect that the real gain is from rewriting union-decompose in
+// terms of 
+function find_minimal(reds,nf)
+  if #reds eq 0 then return reds; end if;
+  rp := RealPlaces(nf);
+  rpseqs := [[Evaluate(i,r): i in reds]: r in rp];
+  perms := [];
+  for i in [1..#rp] do
+    Sort(~rpseqs[i],~perm);
+    Append(~perms,perm);
+  end for;
+
+  ordsets := [{@i^p: i in [1..#reds]@}: p in perms];
+  mins := {@reds[x]: x in [1..#reds]|#&meet [ordsets[i][1..Index(ordsets[i],x)-1]: i in [1..#rp]] eq 0@};
+  return mins;
+end function;
+
+function easy_minimal(reds,rays,nf: verbose := false)
+  if verbose then "sorting", #reds, "elements by trace"; end if;
+  trs := [Trace(i): i in reds];
+  Sort(~trs,~perm);
+  reds := [reds[i^perm]: i in [1..#reds]];
+  mo := MaximalOrder(nf);
+  trvecs := [[Trace(i*v): v in [mo!r: r in rays]]: i in reds];
+  keep := [];
+  // there are better algorithms for this (it's the "skyline problem" in a
+  // context where there aren't many minimal elements)
+  "looking for minimal vectors"; 
+  for i in [#trvecs..1 by -1] do
+    if forall{r: r in [1..i-1]|exists{s: s in [1..#rays]|trvecs[r,s] gt trvecs[i,s]}} then Append(~keep,i); end if;
+    if i mod 1000 eq 0 and verbose then printf "%o ", #keep; end if;
+  end for;
+  if verbose then printf "done, found", #keep, "minimal reducers"; end if;
+  return [reds[i]: i in keep];
+end function;
+  
+// this does the wrong thing
+// we don't care about the ordering on coordinates but about the
+// difference being totally positive
+function find_minimal_normaliz(reds,rays,nf:size := 1000, verbose := false, silent := false)
+  if verbose then "sorting elements by trace"; end if;
+  trs := [Trace(i): i in reds];
+  Sort(~trs,~perm);
+  reds := [Eltseq(reds[i^perm]): i in [1..#reds]];
+  trvecs := [[Trace(i*v): v in [nf!r: r in rays]]: i in reds];
+  // now, as usual, we get normaliz to do the actual work.  If we try to
+  // reduce them all at once, it can run out of memory.
+  gens := [];
+  if verbose or not silent then "entering main loop to reduce generators"; end if;
+  
+  for i in [1..Ceiling(#trvecs div size)] do
+    if verbose then "starting pass", i, "with", #gens, "generators"; end if;
+    tranche := trvecs[size*(i-1)+1..Min(#trvecs,size*i)];
+    str := Sprintf("amb_space %o\nmonoid %o\n",#rays,#gens+#tranche);
+    for g in gens cat tranche do
+      for j in Eltseq(g) do
+        str *:= IntegerToString(Z!j)*" ";
+      end for;
+      str *:= "\n";
+    end for;
+
+    str *:= "HilbertBasis\n";
+    filename := temp_filename();
+    WriteBinary(filename*".in",BString(str));
+    System(Sprintf("normaliz %o.in -B -c",filename));
+    res := Split(Read(filename*".out"));
+    System(Sprintf("rm %o.*",filename));
+    ind := rep{x: x in [2..#res]|Regexp("Hilbert basis elements",res[x])};
+    nhb := StringToInteger(Split(res[1]," ")[1]);
+    gens := [[StringToInteger(i): i in Split(res[j]," ")]: j in [ind+1..ind+nhb]];
+  end for;
+  if verbose or not silent then
+    "finished main loop, reduced from", #trvecs, "to", #gens, "generators";
+  end if;
+  return gens;
+end function;
+
+function get_minimal(reducers)
+  Sort(~reducers,func<x,y|Trace(x)-Trace(y)>);
+  keep := {1..#reducers};
+  for i in [1..#reducers], j in keep do
+    if j in keep and j gt i and IsTotallyPositive(reducers[j]-reducers[i]) then
+      Exclude(~keep,j);
+    end if;
+  end for;
+  min_red := {@reducers[i]: i in keep@};
+  return min_red;
+end function;
+
+// slightly slower
+function get_minimal_2(reducers)
+  Sort(~reducers,func<x,y|Trace(x)-Trace(y)>);
+  drop := {};
+  for i in [1..#reducers], j in [i+1..#reducers] do
+    if j notin drop and IsTotallyPositive(reducers[j]-reducers[i]) then
+      Include(~drop,j);
+    end if;
+  end for;
+  min_red := {@reducers[i]: i in {1..#reducers} diff drop@};
+  return min_red;
+end function;
+
+// much faster
+function get_minimal_3(reducers)
+  Sort(~reducers,func<x,y|Trace(x)-Trace(y)>);
+  rp := RealPlaces(NumberField(Universe(reducers)));
+  rvals := [[Evaluate(r,p): p in rp]: r in reducers];
+  min_red := {@reducers[i]: i in {1..#reducers}|forall{j: j in [1..i-1]|exists{r: r in [1..#rp]|rvals[i,r] lt rvals[j,r]}}@};
+  return min_red;
+end function;
+
+// new version that uses the proper polyhedron
+function reducers_rigorous(nf,vs,bk: scale := 10^10, verbose := false, threshold := 100, id := false, strict := true)
+  error if scale notin Z or scale le 0, "scaling factor must be a positive integer";
+  mo := MaximalOrder(nf);
+  if id cmpeq false then id := 1*mo; end if;
+  rp := RealPlaces(nf);
+  d := #rp;
+  if verbose then
+    "making the bounds for reducers and setting up";
+    cp := Cputime();
+  end if;
+  // no longer needed
+  // bds := reducer_bound(nf,bk,id);
+  // we start by making some rational cones whose union contains the
+  // totally positive cone.
+  ims_id := [[Evaluate(b,r): b in Basis(id)]: r in rp];
+  rounds := [[[fc(i*scale)/scale: fc in [Floor,Ceiling]]: i in im]: im in ims_id];
+  tp_conds := [{@[rounds[i,j,s[j]]: j in [1..d]]: s in CartesianPower({1,2},d)@}: i in [1..d]];
+  // every totally positive element must satisfy at least one of the
+  // conditions in each entry of tp_conds.
+  tp_halves := [{@HalfspaceToPolyhedron(i,0): i in tp@}: tp in tp_conds];
+  tp_cones := {@&meet [tp_halves[i,j[i]]: i in [1..d]]: j in CartesianProduct([{1..#i}: i in tp_halves])@};
+  // so every t. p. element is in one of the tp_cones.
+  // the following is a rational cone contained in the totally positive cone,
+  // but do we really need it?
+  // sub_tp := &meet tp_cones;
+  // assert forall{r: r in Rays(InfinitePart(sub_tp))|IsTotallyPositive(&+[Basis(id)[i]*Eltseq(r)[i]: i in [1..d]])};
+  // this was both slow and wrong
+  //tp_keep := [x: x in tp_cones|forall{y: y in tp_cones|x eq y or x meet y ne y}];
+  //tp_big := Cone(Setseq({@x: x in RGenerators(InfinitePart(i)), i in tp_keep@}));
+  tp_big := Cone(Setseq({@x: x in RGenerators(InfinitePart(i)), i in tp_cones@}));
+  ptp_big := ConeToPolyhedron(tp_big);
+  // the above doesn't depend on v and can take a while, so do it only once
+  ptp_cut_vs := [ptp_big meet HalfspaceToPolyhedron([-Trace(b*v): b in Basis(id)],-Min(id)*Trace(v)): v in vs];
+  all_ids := {@@};
+  all_mins := {@@};
+  if verbose then "finished setting up, time taken", Cputime(cp), "seconds"; end if;
+  for v in vs do
+    if verbose then "starting", v; end if;
+    latpts := intpts(ptp_cut_vs[Index(vs,v)]: verbose := verbose, threshold := threshold);
+    if verbose then "found integral points"; end if;
+    idpts := {@&+[Eltseq(l)[i]*Basis(id)[i]: i in [1..d]]: l in latpts@};
+    assert forall{m: m in idpts|Trace(m*v) le Minimum(id)*Trace(v)};
+    // we are definitely allowed to have some that aren't positive,
+    // in particular 0, but others as well
+    idpts := {@x: x in idpts|IsTotallyPositive(x)@};
+    if strict then idpts := {@x: x in idpts|Trace(x*v) lt Minimum(id)*Trace(v)@}; end if;
+    trs := [Trace(i): i in idpts];
+    /*Sort(~trs,~perm);
+    idpts := {@idpts[i^perm]: i in [1..#idpts]@};
+    if verbose then "finding minimal ones"; end if;
+    minpts := {@idpts[i]: i in [1..#idpts]|forall{j: j in [1..i-1]|not IsTotallyPositive(idpts[i]-idpts[j])}@};*/
+    // minpts := find_minimal(idpts,nf);
+    minpts := idpts;
+    all_ids join:= idpts;
+    all_mins join:= minpts;
+  end for;
+  
+  return all_ids,all_mins;
+end function;
+
+// easy version that uses a weaker condition than "totally positive",
+// putting that back in later, to avoid doing anything with irrationals
+// for backward compatibility we keep the same arguments, even though
+// scale and threshold are no longer relevant
+// The idea is just to use the basic units to create a cone that contains
+// the totally positive cone, and use that to find reducers.
+function old_easy_reducers_rigorous(nf,vs,bk: scale := 10^10, silent := false, verbose := false, threshold := 100, id := false, strict := true, initial_exp := 1)
+  tpu,unit_list,bk,units_bk := unit_data(nf);
+  mo := MaximalOrder(nf);
+  if id cmpeq false then id := 1*mo; end if;
+  d := Degree(nf);
+  strs := []; hypss := []; str0s := [];
+  // and now for each v in vs we make the corresponding polyhedron.
+  // Start from the description of the cone we just got.  (This should be
+  // faster than redoing that work for every extremal ray.)
+  reds := {@@};
+  min_reds := {@@};
+
+  for v in [mo!i: i in vs] do
+    if verbose or not silent then "starting ray", v; end if;
+    unit_exp := 1;
+    success := false;
+    repeat
+      if verbose or not silent then "using products of units up to exponent", unit_exp; end if;
+      if #str0s lt unit_exp then
+        str,hyps,str0 := make_str_hyp(tpu,unit_exp,nf,id);
+        Append(~strs,str); Append(~hypss,hyps); Append(~str0s,str0);
+      else
+        hyps := hypss[unit_exp];
+        str0 := str0s[unit_exp];
+      end if;
+      if unit_exp lt initial_exp then unit_exp +:= 1; continue; end if;
+
+      // first test that we have a finite polyhedron
+      // I'm sure this could be done in normaliz too,
+      // and maybe it should since this is becoming a problem
+      pol := &meet [HalfspaceToPolyhedron(i,0): i in hyps];
+      pol meet:= HalfspaceToPolyhedron([-Trace(i*v): i in Basis(id)],-Minimum(id)*Trace(v));
+      if Dimension(InfinitePart(pol)) gt 0 then
+        if verbose then "polytope is infinite, need to cut it down with more units"; end if;
+        unit_exp +:= 1;
+        continue;
+      end if;
+      
+      for i in Basis(id) do str0 *:= IntegerToString(Z!Trace(i*v))*" "; end for;
+      str0 *:= Sprintf("<= %o\nLatticePoints\n",Minimum(id)*Trace(v));
+      filename := temp_filename();
+      WriteBinary(filename*".in",BString(str0));
+      if verbose then "calling normaliz to find ideal elements"; end if;
+      System(Sprintf("normaliz %o",filename));
+
+      res := Split(Read(filename*".out"));
+      System(Sprintf("rm %o.*",filename));
+      if verbose then "parsing them"; end if;
+      try
+        ind := rep{x: x in [2..#res]|Regexp("lattice points",res[x])};
+        success := true;
+      catch e
+        // fails if the polyhedron is infinite; should no longer happen
+        unit_exp +:= 1;
+        if verbose then "failed"; end if;
+        continue;
+      end try;
+      npts := StringToInteger(Split(res[1]," ")[1]);
+      pts := [[StringToInteger(i): i in Split(res[j]," ")[1..d]]: j in [ind+1..ind+npts]];
+      idpts := {@&+[Eltseq(l)[i]*Basis(id)[i]: i in [1..d]]: l in pts@};
+      idpts := {@i: i in idpts|IsTotallyPositive(i)@};
+      if strict then idpts := {@x: x in idpts|Trace(x*v) lt Minimum(id)*Trace(v)@}; end if;
+      // if verbose then "picking out the minimal ones"; end if;
+      // minpts := find_minimal(idpts,nf);
+      minpts := easy_minimal(idpts,vs,nf: verbose := verbose);
+      reds join:= idpts;
+      // If Tr(xv) < Tr(v) and Tr(yw) < Tr(w) and x-y is totally positive,
+      // then Tr(yv) < Tr(v) as well.  So for checking minimality it's enough
+      // to work one ray at a time.
+      min_reds join:= {@x: x in minpts@};
+    until success;
+  end for;
+  return reds, min_reds, hyps;
+end function;
+
+// same as above, except that the actual work is moved to a separate function
+function easy_reducers_rigorous(nf,vs,bk: scale := 10^10, silent := false, verbose := false, threshold := 100, id := false, strict := true, initial_exp := 1)
+  mo := MaximalOrder(nf);
+  vs := [mo!i: i in vs];
+  if id cmpeq false then id := 1*mo; end if;
+  reds,hyps := tp_trace(nf,id: mults := vs, trseqs := [[Trace(i)]: i in vs], silent := silent, verbose := verbose, strict);
+  min_reds := [easy_minimal(i[1],vs,nf): i in reds];
+  reds := &join [r[1]: r in reds];
+  min_reds := &join [{@x: x in m@}: m in min_reds];
+  return reds, min_reds, hyps;
 end function;
