@@ -136,10 +136,10 @@ function intpts_normaliz(poly)
   return pts;
 end function;  
   
-// this seems to me like the obvious way to find integral points;
-// I'm surprised that it's often faster than Magma
-// the name is somewhat obsolete, since now it returns boundary points too
-// the "strict" parameter decides whether to exclude boundary points
+// This seems to me like the obvious way to find integral points;
+// I'm surprised that it's often faster than Magma.
+// The name is somewhat obsolete, since now it returns boundary points too
+// The "strict" parameter decides whether to exclude boundary points
 // (default is false, i.e., don't exclude them)
 function intpts(poly:depth := 0, verbose := false, threshold := 20, strict := false, use_normaliz := true)
   if IsEmpty(poly) then return {@@}; end if;
