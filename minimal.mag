@@ -136,10 +136,10 @@ function intpts_normaliz(poly)
   return pts;
 end function;  
   
-// this seems to me like the obvious way to find integral points;
-// I'm surprised that it's often faster than Magma
-// the name is somewhat obsolete, since now it returns boundary points too
-// the "strict" parameter decides whether to exclude boundary points
+// This seems to me like the obvious way to find integral points;
+// I'm surprised that it's often faster than Magma.
+// The name is somewhat obsolete, since now it returns boundary points too
+// The "strict" parameter decides whether to exclude boundary points
 // (default is false, i.e., don't exclude them)
 function intpts(poly:depth := 0, verbose := false, threshold := 20, strict := false, use_normaliz := true)
   if IsEmpty(poly) then return {@@}; end if;
@@ -359,8 +359,23 @@ function get_minimal_3(reducers)
   Sort(~reducers,func<x,y|Trace(x)-Trace(y)>);
   rp := RealPlaces(NumberField(Universe(reducers)));
   rvals := [[Evaluate(r,p): p in rp]: r in reducers];
-  min_red := {@reducers[i]: i in {1..#reducers}|forall{j: j in [1..i-1]|exists{r: r in [1..#rp]|rvals[i,r] lt rvals[j,r]}}@};
+  keep := {@@};
+  for i in [1..#reducers] do
+    if forall{j: j in keep|exists{r: r in [1..#rp]|rvals[i,r] lt rvals[j,r]}} then Include(~keep,i); end if;
+  end for;
+  min_red := {@reducers[i]: i in keep@};
+  // min_red := {@reducers[i]: i in {1..#reducers}|forall{j: j in [1..i-1]|exists{r: r in [1..#rp]|rvals[i,r] lt rvals[j,r]}}@};
   return min_red;
+end function;
+
+function get_essential(reducers,rays)
+  Sort(~reducers,func<x,y|Trace(x)-Trace(y)>);
+  keep := {@@};
+  for i in [1..#reducers] do
+    if forall{j: j in [1..i-1]|exists{r: r in rays|Trace((reducers[i]-reducers[j])*r) lt 0}} then Include(~keep,i); end if;
+  end for;
+  ess := {@reducers[i]: i in keep@};
+  return ess;
 end function;
 
 // new version that uses the proper polyhedron
