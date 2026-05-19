@@ -1,0 +1,68 @@
+// Triangulate one of our polyhedra in R^3.
+// This version is deterministic but arbitrary.
+function triangulate(pol)
+  dim := Dimension(pol);
+  vs := Vertices(pol);
+  if #vs eq dim+1 then return [pol]; else
+    for s in Subsets(Set(Exclude(vs,[0^^dim])),dim-1) do
+      ker := Kernel(Transpose(Matrix([Eltseq(i): i in s]))).1;
+      pos := [v: v in vs|&+[ker[i]*Eltseq(v)[i]: i in [1..dim]] gt 0];
+      neg := [v: v in vs|&+[ker[i]*Eltseq(v)[i]: i in [1..dim]] lt 0];
+      zero := [v: v in vs|&+[ker[i]*Eltseq(v)[i]: i in [1..dim]] eq 0];
+      assert Set(zero) eq Include(s,vs![0^^dim]);
+      if #pos gt 0 and #neg gt 0 then
+        halves := [Polyhedron(i cat zero): i in [pos,neg]];
+        assert [Dimension(i): i in halves] eq [dim,dim];
+        // assert &+[Volume(i): i in halves] eq Volume(pol);
+        break s;
+      end if;
+    end for;
+    tr := &cat [triangulate(i): i in halves];
+    assert #tr eq #Vertices(pol)-3;
+    return tr;
+  end if;
+end function;
+
+// In this version we try to make a decomposition that is reasonably well
+// balanced (i.e., the pieces have roughly the same volume).  We use a
+// greedy algorithm, so there are no guarantees.  Alternatively by calling
+// with unbalanced := true we try to make an imbalanced decomposition.
+
+// This is slow because of the volume calculations.  In any case it doesn't
+// seem to help much in our application, so we don't use it.
+
+// Another approach (not implemented here) would be to do some kind of
+// walk on the graph of triangulations, where two triangulations are
+// adjacent if and only if they are the same except for the subdivision
+// of one quadrilateral.
+function triangulate_balanced(pol: unbalanced := false)
+  dim := Dimension(pol);
+  vs := Vertices(pol);
+  vol := Volume(pol);
+  if #vs eq dim+1 then
+    "done recursion";
+    return [pol]; else
+    "recursively considering polyhedron with", #vs, "vertices";
+    candidates := [];
+    for s in Subsets(Set(Exclude(vs,[0^^dim])),dim-1) do
+      ker := Kernel(Transpose(Matrix([Eltseq(i): i in s]))).1;
+      pos := [v: v in vs|&+[ker[i]*Eltseq(v)[i]: i in [1..dim]] gt 0];
+      neg := [v: v in vs|&+[ker[i]*Eltseq(v)[i]: i in [1..dim]] lt 0];
+      zero := [v: v in vs|&+[ker[i]*Eltseq(v)[i]: i in [1..dim]] eq 0];
+      assert Set(zero) eq Include(s,vs![0^^dim]);
+      if #pos gt 0 and #neg gt 0 then
+        halves := [Polyhedron(i cat zero): i in [pos,neg]];
+        assert [Dimension(i): i in halves] eq [dim,dim];
+        // assert &+[Volume(i): i in halves] eq Volume(pol);
+        Append(~candidates,<halves,AbsoluteValue(Volume(halves[1])/vol-#pos/(#pos+#neg))>);
+        printf ".";
+      end if;
+    end for;
+    _,ind := (unbalanced select Max else Min)([x[2]: x in candidates]);
+    halves := candidates[ind,1];
+    " choosing decomposition into polyhedra with", #Vertices(halves[1]), "and", #Vertices(halves[2]), "vertices";
+    tr := &cat [triangulate_balanced(i): i in halves];
+    assert #tr eq #Vertices(pol)-3;
+    return tr;
+  end if;
+end function;
