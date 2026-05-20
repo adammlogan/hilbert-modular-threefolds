@@ -54,7 +54,7 @@ function test_nf(nf: use_tri := true)
         "triangulating";
         pols := [triangulate(i): i in pols0];
       else
-        pols := [x: x in pols0];
+        pols := [[x]: x in pols0];
       end if;
       /* ips := &cat [intpts(i): i in pols]; // just take the minimal ones
       mips := {@&+[v[i]*Basis(id)[i]: i in [1..Degree(nf)]]: v in ips@};
