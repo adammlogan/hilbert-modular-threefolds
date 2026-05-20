@@ -61,6 +61,14 @@ function test_nf(nf: use_tri := true)
       min_mips := {@x: x in mips|forall{y: y in mips|not IsTotallyPositive(x-y)}@};*/
       duals := dual_orthants(nf,tmc_mo:id := id);
       tpc_faces := small_faces(nf,4);   
+      mps := [];
+      for pol in pols do
+        try Append(~mps,new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: id := id, threshold := 10));
+        catch e
+          "error on polyhedron", Index(pols,pol), "(I hope it was in normaliz)";
+          Append(~mps,new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: id := id, threshold := 10, use_tri := false));
+        end try;
+      end for;
       mps := [new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: id := id, threshold := 10): pol in pols];
       printf "making polyhedra ... ";
       all_mps := &join mps;
