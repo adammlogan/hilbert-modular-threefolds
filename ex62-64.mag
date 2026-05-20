@@ -1,8 +1,8 @@
-// calculations for example 6.1 and 6.3
+// calculations for example 6.2 and 6.4
 load "defect-new.mag";
 load "polyhedra.mag";
 load "fields.mag";
-"starting example 6.1";
+"starting example 6.2";
 nf := rep{x: x in nfs|Discriminant(MaximalOrder(x)) eq 761};
 // standard unit generators
 u2 := Roots(t*(t-2)*(t-5)-1,nf)[1,1] where t is PolynomialRing(Q).1;
@@ -28,8 +28,8 @@ vol := Volume(polyhedra[1])/6*Discriminant(MaximalOrder(nf))*NarrowClassNumber(n
 zeta := AbsoluteValue(2*Roots(MinimalPolynomial(Evaluate(LSeries(nf),-1),1),Q)[1,1]);
 assert vol eq 13/2 and zeta eq 20/3;
 
-"starting example 6.3";
-// now we do example 6.3
+"starting example 6.4";
+// now we do example 6.4
 nf := rep{x: x in nfs|Discriminant(MaximalOrder(x)) eq 473};
 // unit generators
 u1 := nf.1;
@@ -38,7 +38,7 @@ tpu,unit_list,bk,units_bk := unit_data(nf);
 "checking bound b_K and set of units";
 assert bk lt 117;
 assert Set(units_bk) eq {u1^i[1]*u2^i[2]: i in [[-4,-2],[-2,-2],[-2,0],[-2,2],[0,-2],[0,0],[0,2],[2,-2],[2,0],[2,2],[4,0]]};
-reducers := list_reducers(nf,units_bk,bk);
+reducers,min_reducers := list_reducers(nf,units_bk,bk);
 assert #reducers eq 19;
 "making polyhedra for the reducers";
 polyhedra := make_polyhedra(units_bk cat unit_list,Include(reducers,1));

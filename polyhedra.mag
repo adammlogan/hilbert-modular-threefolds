@@ -1,3 +1,5 @@
+forward union_decompose, unit_data, ineq;
+load "normaliz.mag";
 load "minimal.mag";
 // code to handle the polyhedra that arise
 // user functions:
@@ -64,6 +66,8 @@ function spike(units,reducer: verbose := false)
   return pol;
 end function;
 
+// this is slow for the larger fields; we now have a function tmc_normaliz
+// in normaliz.mag
 function trace_minimal_cone(units: verbose := false)
   nf := NumberField(Universe(units));
   mo := MaximalOrder(nf);
@@ -112,25 +116,34 @@ function list_reducers(nf,units_bk,bk:verbose := false, threshold := 10, id := f
   // tmc_1 := tmc meet HalfspaceToPolyhedron(ineq(-1,mo),-1);
   // convert vertices back into elements of the number field
   // verts := [nf!&+[Eltseq(i)[j]*Basis(mo)[j]: j in [1..Degree(nf)]]: i in Vertices(mp)|Eltseq(i) ne [0^^Degree(nf)]];
+  vs := [mo!Eltseq(i): i in RGenerators(InfinitePart(tmc))];
+  assert forall{x: x in vs|IsTotallyPositive(x) and #[y: y in units_bk|Trace(x*y) eq Trace(x)] ge Degree(nf)};
   verts := [nf!&+[Eltseq(i)[j]*Basis(mo)[j]: j in [1..Degree(nf)]]: i in Vertices(tmc_1)|Eltseq(i) ne [0^^Degree(nf)]];
   if not silent then printf "cone found, %o vertices\n", #verts; end if;
   id_reducers := []; id_reducers_strict := [];
-  for v in verts do
+  min_reducers := []; min_reducers_strict := [];
+  /*for v in vs do
     if verbose then "finding reducers for", v; end if;
     // Append(~id_reducers,reduce_x(nf,v: fast, verbose := verbose));
     cp := Cputime();
-    new_reducers := reducers_rigorous(nf,v,bk: verbose := verbose, threshold := threshold, id := id);
+    new_reducers,new_min_reducers := reducers_rigorous(nf,v,bk: verbose := verbose, threshold := threshold, id := id);
     if not silent then "Time: ", Cputime(cp); end if;
     Append(~id_reducers,new_reducers);
+    Append(~min_reducers,new_min_reducers);
     if verbose then "found", #id_reducers[#id_reducers]; end if;
     new_reducers_strict := {@nf|x: x in new_reducers|Trace(x*v-Minimum(id)*v) lt 0@};
+    new_min_reducers_strict := new_reducers_strict meet {@nf|x: x in min_reducers@};
     Append(~id_reducers_strict,new_reducers_strict);
+    Append(~min_reducers_strict,new_min_reducers_strict);
   end for;
+  
   // some reducers could reduce more than one extremal ray, so we join them
   reducers := &join id_reducers;
   reducers_strict := &join id_reducers_strict;
-  if not silent then "finished, found", #reducers_strict, "reducers."; end if;
-  return /*reducers,*/reducers_strict,tmc;
+  min_strict := &join min_reducers_strict;*/
+  reducers_strict,min_strict := reducers_rigorous(nf,vs,bk: verbose := verbose, threshold := threshold, id := id);
+  if not silent then "finished, found", #reducers_strict, "reducers of which", #min_strict, "are minimal."; end if;
+  return /*reducers,*/reducers_strict,min_strict,tmc;
 end function;
   
 // Make the polyhedra to feed to a union-volume-finding function.
@@ -260,7 +273,9 @@ end function;
 
 // try to break up a union into polyhedra that are disjoint
 // note: "verbose" takes precedence over "silent"
-function union_decompose(polyhedra: verbose := false, silent := false)
+// we might want to skip the initial test for inclusion, now that we do it
+// another way
+function union_decompose(polyhedra: verbose := false, silent := false, skip_incl := false)
   if #polyhedra eq 0 then return 0,0,[]; end if;
   dim := #Eltseq(Rep(Vertices(polyhedra[1])));
   if exists{p: p in polyhedra|Dimension(p) lt dim} then
@@ -271,21 +286,23 @@ function union_decompose(polyhedra: verbose := false, silent := false)
   if verbose then "computing volumes"; end if;
   Sort(~polyhedra,func<x,y|Volume(x)-Volume(y)>);
   // #polyhedra, "polyhedra";
-  if not silent then "removing polyhedra contained in others"; end if;
+  if not silent and not skip_incl then "removing polyhedra contained in others"; end if;
   exclude := {@@};
   // we could also notice that if P is contained in Q but not R, then Q
   // is not contained in R.  But I'm not sure it's worth the trouble.
-  for i in [1..#polyhedra], j in [#polyhedra..i+1 by -1] do
-    if verbose and j eq #polyhedra then "starting polyhedron", i; end if;
-    // we don't need to check polyhedra contained in another;
-    // anything contained in the smaller one is contained in the larger
-    // they automatically come in order now
-    if j notin exclude and i ne j and polyhedra[i] meet polyhedra[j] eq polyhedra[i] then
-      if verbose then "polyhedron", i, "is contained in polyhedron", j; end if;
-      Include(~exclude,i);
-      continue i;
-    end if;
-  end for;
+  if not skip_incl then
+    for i in [1..#polyhedra], j in [#polyhedra..i+1 by -1] do
+      if verbose and j eq #polyhedra then "starting polyhedron", i; end if;
+      // we don't need to check polyhedra contained in another;
+      // anything contained in the smaller one is contained in the larger
+      // they automatically come in order now
+      if j notin exclude and i ne j and polyhedra[i] meet polyhedra[j] eq polyhedra[i] then
+        if verbose then "polyhedron", i, "is contained in polyhedron", j; end if;
+        Include(~exclude,i);
+        continue i;
+      end if;
+    end for;
+  end if;
   polyhedra := [polyhedra[i]: i in [1..#polyhedra]|i notin exclude];
   if not silent then "finished with inclusions:", #polyhedra, (#polyhedra eq 1 select "polyhedron left" else "polyhedra left"); end if;
   /*while exists(i){i: i,j in [1..#polyhedra]|i ne j and polyhedra[i] meet polyhedra[j] eq polyhedra[i]} do
@@ -355,10 +372,24 @@ end function;
 // combine the above into a single function
 function cusp_vol(nf,id: verbose := false)
   tpu,unit_list,bk,units_bk := unit_data(nf);
-  reducers/*,reducers_strict*/,tmc := list_reducers(nf,units_bk,bk: id := id, verbose := verbose);
+  reducers/*,reducers_strict*/,min_reducers,tmc := list_reducers(nf,units_bk,bk: id := id, verbose := verbose);
   // polyhedra := make_polyhedra(units_bk cat unit_list,Include(reducers/*_strict*/,Minimum(id)): verbose := verbose);
   mo := MaximalOrder(nf);
-  polyhedra := [tmc meet HalfspaceToPolyhedron(ineq(-r,mo),-1): r in Include(reducers,Minimum(id))];
+  polyhedra := [tmc meet HalfspaceToPolyhedron(ineq(-r,mo),-1): r in Include(min_reducers,Minimum(id))];
+  vol := union_decompose(polyhedra: verbose := verbose); 
+  vol *:= Discriminant(MaximalOrder(nf))*NarrowClassNumber(nf)/ClassNumber(nf)*Norm(id);
+  return vol;
+end function;
+
+function easy_cusp_vol(nf,id: verbose := false)
+  mo := MaximalOrder(nf);
+  if id cmpeq false then id := 1*mo; end if;
+  tpu,unit_list,bk,units_bk := unit_data(nf);
+  rays := tmc_normaliz(units_bk);
+  reds,min_reds,hyps := easy_reducers_rigorous(nf,rays,bk: id := id, verbose := verbose);
+  tmc := Cone(rays);
+  tmp := Polytope([Ambient(tmc)!0])+tmc;
+  polyhedra := [tmp meet HalfspaceToPolyhedron(ineq(-r,mo),-1): r in Include(min_reds,Minimum(id))];
   vol := union_decompose(polyhedra: verbose := verbose); 
   vol *:= Discriminant(MaximalOrder(nf))*NarrowClassNumber(nf)/ClassNumber(nf)*Norm(id);
   return vol;

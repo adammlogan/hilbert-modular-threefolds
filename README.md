@@ -22,8 +22,7 @@ algorithms.mag      Functions that implement each of the numbered algorithms in 
 cq-defect.mag       Functions to calculate defects of cyclic quotient singularities. <br>
 defect-new.mag      A function to compute individual defects of cusps. <br>
 dimension.mag       A function to evaluate the Thomas-Vasquez formula for the Hilbert series of the ring of level 1 forms. <br>
-ex61-63.mag         Code to reproduce examples 6.2 and 6.4 in the paper. <br>
-ex67.mag            Code to reproduce example 6.8 in the paper. <br>
+ex62-64.mag         Code to reproduce examples 6.2 and 6.4 in the paper. <br>
 field-search.mag    Function to search for fields that do not satisfy the general type condition of Tsuyumine-Grundman (cf. Hypothesis 6.14).
 fields.mag          List of cubic fields (from the LMFDB). <br>
 grundman-chi.mag    A function that evaluates the genus of a Hilbert modular threefold for level 1. <br>
@@ -33,6 +32,7 @@ manycubics.mag      Long list of cubic fields, downloaded from the LMFDB. <br>
 maybe-gen-type.mag  Script to look for additional fields for which the Hilbert modular threefold may not be of general type (see Hypothesis 6.14). <br>
 minimal.mag         Functions to determine the trace-minimal cone and the set of reducers. <br>
 polyhedra.mag       Functions to set up the union of polyhedra and calculate its volume. <br>
+prop68.mag          Code to reproduce proposition 6.8 in the paper. <br>
 qz.mag              Define Q, Z to be the rationals and integers respectively. <br>
 tables-sec6.mag     Recompute the tables in section 6. <br>
 tables-sec7.mag     Recompute the tables in section 7. <br>
@@ -42,3 +42,15 @@ cubic-field-polyhedra.ipynb  Jupyter notebook giving an interactive view of the 
 All computations were done using Magma 2.28-3 on the author's laptop, a
 machine with 16 gigabytes of memory and an Intel i7-11390H processor
 with 8 cores running at 3.40 GHz.
+
+---
+
+Changes in new version:
+
+minimal.mag now uses normaliz to compute integral points of polytopes, which
+can be obtained at https://github.com/Normaliz/Normaliz/releases.  This
+is required to run larger examples.  The function intpts now attempts to
+invoke normaliz and will revert to the previous method if it fails, so
+the user should make sure that normaliz is installed in a place where
+Magma can find it.  There is a new function test_normaliz that checks
+whether this has been done.

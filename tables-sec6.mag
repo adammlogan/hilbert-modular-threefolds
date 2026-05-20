@@ -1,6 +1,6 @@
 // functions to create the tables in section 6
-load "defect-new.mag";
 load "polyhedra.mag";
+load "defect-new.mag";
 load "fields.mag";
 // fields with p_g(H_K) = 0 or 1 respectively, from Grundman-Lippincott
 // all of these have class number 1
@@ -17,10 +17,10 @@ function table_line(nf,id: nclassno := true,verbose := false, silent := false)
   cp := Cputime();
   tpu,unit_list,bk,units_bk := unit_data(nf);
   // reducers,reducers_strict := list_reducers(nf,units_bk,bk: id := id, silent);
-  reducers,tmc := list_reducers(nf,units_bk,bk: id := id, silent := silent, verbose := verbose);
+  reducers,min_reducers,tmc := list_reducers(nf,units_bk,bk: id := id, silent := silent, verbose := verbose);
   // polyhedra := make_polyhedra(units_bk cat unit_list,Include(reducers,Minimum(id)));
   mo := MaximalOrder(nf);
-  polyhedra := [tmc meet HalfspaceToPolyhedron(ineq(-r,mo),-1): r in Include(reducers,Minimum(id))];
+  polyhedra := [tmc meet HalfspaceToPolyhedron(ineq(-r,mo),-1): r in Include(min_reducers,Minimum(id))];
   cpp := Cputime();
   vol,ct := union_decompose(polyhedra:silent := silent,verbose := verbose); 
   cpp := Cputime(cpp);
@@ -35,21 +35,45 @@ function table_line(nf,id: nclassno := true,verbose := false, silent := false)
   return output;
 end function;
 
+function easy_table_line(nf,id: nclassno := true,verbose := false, silent := false)
+  cp := Cputime();
+  mo := MaximalOrder(nf);
+  tpu,unit_list,bk,units_bk := unit_data(nf);
+  rays := tmc_normaliz(units_bk);
+  reducers,min_reducers,hyps := easy_reducers_rigorous(nf,rays,bk: id := id,verbose := verbose);
+  tmc := Cone(rays);
+  tmp := Polytope([Ambient(tmc)!0])+tmc;
+  polyhedra := [tmp meet HalfspaceToPolyhedron(ineq(-r,mo),-1): r in Include(min_reducers,Minimum(id))];
+  cpp := Cputime();
+  vol,ct := union_decompose(polyhedra: verbose := verbose); 
+  cpp := Cputime(cpp);
+  vol *:= Discriminant(MaximalOrder(nf))*NarrowClassNumber(nf)/ClassNumber(nf)*Norm(id);
+  zeta := AbsoluteValue(2*Roots(MinimalPolynomial(Evaluate(LSeries(nf),-1),1),Q)[1,1]);
+  cp := Cputime(cp);
+  if nclassno then
+    output := Sprintf("$\\cf{%o}$&$%o$&$%o$&$%o$&$%o$&$%o$&$%o$&$%o$ \\\\ \\hline \n", Discriminant(MaximalOrder(nf)),zeta,vol,NarrowClassNumber(nf),#reducers,ct,cp,cpp);
+  else
+    output := Sprintf("$\\cf{%o}$&$%o$&$%o$&$%o$&$%o$&$%o$&$%o$ \\\\ \\hline \n", Discriminant(MaximalOrder(nf)),zeta,vol,#reducers,ct,cp,cpp);
+  end if;
+  return output;
+end function;
+
+  
 // give the LaTeX code for the lines of a table such as those in section 6
 // of the paper
-function make_table(flds:principal := true,nclassno := true,verbose := false,silent := false);
+function make_table(flds:principal := true,nclassno := true,verbose := false,silent := false, easy := true);
   if not silent then "making table involving", #flds, (#flds eq 1 select "field" else "fields"); end if;
   lines := [];
   for fld in flds do
-    if not silent then "starting field", Index(flds,fld), "with defining polynomial", DefiningPolynomial(fld); end if;
+    if not silent then "starting field", Index(flds,fld), "with discriminant", Discriminant(MaximalOrder(fld)); end if;
     if principal then
       id := 1*MaximalOrder(fld);
-      Append(~lines,table_line(fld,id:nclassno := nclassno,verbose := verbose,silent := false));
+      Append(~lines,(easy select easy_table_line else table_line)(fld,id:nclassno := nclassno,verbose := verbose,silent := false));
     else
       if NarrowClassNumber(fld) eq 2 then
         ids := PrimesUpTo(100,fld);
         np := rep{x: x in ids|not IsNarrowlyPrincipal(x)};
-        Append(~lines,table_line(fld,np:nclassno := nclassno,verbose := verbose, silent := false));
+        Append(~lines,(easy select easy_table_line else table_line)(fld,np:nclassno := nclassno,verbose := verbose, silent := false));
       end if;
     end if;
     end for;
@@ -76,6 +100,8 @@ function create_tables_sec6(:verbose := false, silent := false)
   return [[x: x in t|x ne ""]: t in [table1,table2,table3,table4,table5]];
 end function;
 
+// note that tables 4 and 5 have to be compared with pos = 5, since we leave
+// out the narrow class number
 function compare_tables_sec6(t1,t2:pos := 6)
   if #t1 ne #t2 then return false; end if;
   for l in [1..#t1] do
@@ -161,3 +187,11 @@ t5 := [
 "$\\cf{1825}$&$68/3$&$35/18$&$342$&$60$&$52.250$&$36.420$ \\ \hline",
 "$\\cf{1929}$&$92/3$&$53/9$&$1789$&$112$&$190.440$&$75.420$ \\ \hline",
 "$\\cf{1937}$&$28$&$21/4$&$134$&$101$&$73.210$&$64.580$ \\ \hline"];
+
+procedure verify()
+  tabs := create_tables_sec6();
+  ts := [t1,t2,t3,t4,t5];
+  assert forall{i: i in [1..3]|compare_tables_sec6(tabs[i],ts[i])};
+  assert forall{i: i in [4..5]|compare_tables_sec6(tabs[i],ts[i]:pos := 5)};
+end procedure;
+

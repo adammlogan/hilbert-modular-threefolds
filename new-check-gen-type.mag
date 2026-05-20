@@ -49,10 +49,12 @@ function test_nf(nf: use_tri := true)
     for id in ps do
       "considering cusp", Index(ps,id);
       min := Minimum(id);
-      pols,tmc_mo := make_pols(nf: id := id);
+      pols0,tmc_mo := make_pols(nf: id := id);
       if use_tri then
         "triangulating";
-        pols := &cat [triangulate(i): i in pols];
+        pols := [triangulate(i): i in pols0];
+      else
+        pols := [x: x in pols0];
       end if;
       /* ips := &cat [intpts(i): i in pols]; // just take the minimal ones
       mips := {@&+[v[i]*Basis(id)[i]: i in [1..Degree(nf)]]: v in ips@};
@@ -63,11 +65,16 @@ function test_nf(nf: use_tri := true)
       tpc_faces := small_faces(nf,4);   
       mps := [];
       for pol in pols do
-        try Append(~mps,new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: id := id, threshold := 10));
-        catch e
-          "error on polyhedron", Index(pols,pol), "(I hope it was in normaliz)";
-          Append(~mps,new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: id := id, threshold := 10, use_tri := false));
-        end try;
+        mp := [];
+        for p in pol do
+          try Append(~mp,new_minimal_pts(p,tpc_faces,nf,duals,tmc_mo: id := id, threshold := 10));
+          catch e
+            "error on polyhedron", Index(pols,pol), "(I hope it was in normaliz)";
+            Append(~mps,new_minimal_pts(pols0[Index(pols,pol)],tpc_faces,nf,duals,tmc_mo: id := id, threshold := 10, use_tri := false));
+            continue pol;
+          end try;
+        end for;
+        mps cat:= mp;
       end for;
       // mps := [new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: id := id, threshold := 10): pol in pols];
       printf "making polyhedra ... ";

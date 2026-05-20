@@ -35,15 +35,15 @@ end function;
 
 function alg416(nf,id)
   tpu,unit_list,bk,units_bk := unit_data(nf);
-  reducers := list_reducers(nf,units_bk,bk: id := id);
-  return reducers;
+  all_reducers := list_reducers(nf,units_bk,bk: id := id);
+  return all_reducers;
 end function;
 
 // function to produce the region T for an ideal
 // the output of this can be given to alg36
 function make_cusp_polyhedra(nf,id)
   tpu,unit_list,bk,units_bk := unit_data(nf);
-  reducers := list_reducers(nf,units_bk,bk: id := id);
+  all_reducers,reducers := list_reducers(nf,units_bk,bk: id := id);
   polyhedra := make_polyhedra(units_bk cat unit_list,Include(reducers,Minimum(id)));
   return polyhedra;
 end function;

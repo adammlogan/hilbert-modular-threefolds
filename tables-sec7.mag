@@ -1,6 +1,6 @@
 // code to generate the tables in section 7
-load "lucant-dim.mag";
 load "polyhedra.mag";
+load "lucant-dim.mag";
 g0disc := [49, 81, 148, 169, 229, 257, 316, 321, 361, 404, 469, 473, 564, 568, 621, 697, 733, 756, 761, 785, 788, 837, 892, 940, 985, 993, 1076, 1257, 1300, 1345, 1396, 1489, 1593];
 g1disc := [1016, 1101, 1129, 1229, 1369, 1373, 1425, 1492, 1573, 1620, 1765, 1825, 1929, 1937];
 nf0 := [rep{x: x in nfs|Discriminant(x) eq i}: i in g0disc];
@@ -115,12 +115,37 @@ end function;
 
 // now table 7: we determine which ones might not be of general type.
 function table7_line(nf: genus := 1*MaximalOrder(nf), verbose := false, silent := true)
-  if verbose then "starting field defined by", DefiningPolynomial(nf), "with discriminant", Discriminant(MaximalOrder(nf)); end if;
+  if not silent then "starting field defined by", DefiningPolynomial(nf), "with discriminant", Discriminant(MaximalOrder(nf)); end if;
   mo := MaximalOrder(nf);
   z := -Roots(MinimalPolynomial(Evaluate(LSeries(nf),-1),1),Q)[1,1];
   tpu,unit_list,bk,units_bk := unit_data(nf);
-  reducers := list_reducers(nf,units_bk,bk: id := genus, verbose := verbose, silent := silent);
-  polyhedra := make_polyhedra(units_bk cat unit_list,Include(reducers,Minimum(genus)): verbose := verbose);
+  reducers,min_reducers := list_reducers(nf,units_bk,bk: id := genus, verbose := verbose, silent := silent);
+  polyhedra := make_polyhedra(units_bk cat unit_list,Include(min_reducers,Minimum(genus)): verbose := verbose);
+  vol := union_decompose(polyhedra:verbose := verbose, silent := silent)*Discriminant(MaximalOrder(nf))*NarrowClassNumber(nf);
+
+  ep_max := (Discriminant(nf) eq 49 select 1/42 else (Discriminant(nf) eq 81 select 1/9 else 0));
+  norm_bound := (2*vol+ep_max)/(2*z)-1;
+  ps := PrimesUpTo(Floor(norm_bound),nf);
+
+  nongen_p := [p: p in ps|(Norm(p)+1)*z le 2*vol+ep(nf,p)];
+
+  // now we make the table line
+  if #nongen_p eq 0 then return ""; end if;
+  sign := (NarrowClassNumber(nf) eq 2 select (IsNarrowlyPrincipal(genus) select "+" else "-") else "");
+  output := Sprintf("$\\cf{%o}$&$%o$&$%o$\\\\ \\hline",Discriminant(mo),sign,format_ids(nf,nongen_p));
+  return output;
+end function;
+
+function easy_table7_line(nf: genus := 1*MaximalOrder(nf), verbose := false, silent := true)
+  if not silent then "starting field defined by", DefiningPolynomial(nf), "with discriminant", Discriminant(MaximalOrder(nf)); end if;
+  mo := MaximalOrder(nf);
+  z := -Roots(MinimalPolynomial(Evaluate(LSeries(nf),-1),1),Q)[1,1];
+  tpu,unit_list,bk,units_bk := unit_data(nf);
+  rays := tmc_normaliz(units_bk);
+  reducers,min_reducers := easy_reducers_rigorous(nf,units_bk,bk: id := genus, verbose := verbose, silent := silent);
+  tmc := Cone(rays);
+  tmp := Polytope([Ambient(tmc)!0])+tmc;
+  polyhedra := [tmp meet HalfspaceToPolyhedron(ineq(-r,mo),-1): r in Include(min_reducers,Minimum(genus))];
   vol := union_decompose(polyhedra:verbose := verbose, silent := silent)*Discriminant(MaximalOrder(nf))*NarrowClassNumber(nf);
 
   ep_max := (Discriminant(nf) eq 49 select 1/42 else (Discriminant(nf) eq 81 select 1/9 else 0));
@@ -226,7 +251,7 @@ function create_tables_sec7(: verbose := false, silent := false)
   "Finished table 6: time taken", Cputime(cp), "seconds.";
   cp := Cputime();
   if not silent then "Starting table 7."; end if;
-  table7 := [table7_line(nf: verbose := verbose, silent := silent): nf in nf0];
+  table7 := [easy_table7_line(nf: verbose := verbose, silent := silent): nf in nf0];
   "Finished table 7: time taken", Cputime(cp), "seconds.";
   cp := Cputime();
   if not silent then "Starting table 8."; end if;
@@ -278,3 +303,4 @@ tables_stored :=
 assert tables eq tables_stored;
 
 
+*/
