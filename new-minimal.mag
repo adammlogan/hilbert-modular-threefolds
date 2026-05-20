@@ -1,0 +1,322 @@
+// new approach to listing minimal reducers without necessarily listing all
+// reducers or doing scary irrational computations: we start by finding the
+// rays of the trace-minimal cone.  For each ray r, we produce a cone of
+// s where the trace of r*s is at most the trace of s and the trace of
+// s*u is positive for a bunch of units.  We then scan through larger and
+// larger traces, at each step identifying minimal reducers and imposing
+// conditions that remove the points where the trace of a product is always
+// at least as large.
+
+// unit_list is one unit that is greater than 1 at one place and less at
+// every other, for each place
+// units_bk is the units that are under the bound
+// tmc is the trace-minimal cone
+function minimize(t,tmc,unit_list,units_bk)
+  while exists(u){u: u in unit_list cat units_bk|Trace(t*u) lt Trace(t)} do
+    t *:= u;
+  end while;
+  assert Universe(Vertices(tmc))!Eltseq(t) in tmc;
+  return t;
+end function;
+
+// totally positive generators of ideals of norm up to n
+function tp_to_n(nf,n,tmc,unit_list,units_bk)
+  ids := IdealsUpTo(n,nf);
+  gens := [x where _,x is IsNarrowlyPrincipal(i): i in ids|IsNarrowlyPrincipal(i)];
+  mgens := [minimize(i,tmc,unit_list,units_bk): i in gens];
+  return mgens;
+end function;
+
+// as above, but multiplied by totally positive units of exponent up to m
+function tpu_to_n_m(nf,n,m,tmc,unit_list,units_bk)
+  mg := tp_to_n(nf,n,tmc,unit_list,units_bk);
+  tpu := tpu_basis(nf);
+  uns := {@&*[tpu[i]^v[i]: i in [1..Degree(nf)-1]]: v in CartesianPower({-m..m},Degree(nf)-1)@};
+  mgu := {@x*y: x in mg, y in uns@};
+  return mgu;
+end function;
+
+// a cone inside the totally positive cone, presumably
+function positive_cone(elts: silent := false)
+  tpc := Cone([Eltseq(i): i in elts[1..Min(10,#elts)]]);
+  for i in [2..Ceiling(#elts/10)] do
+    _ := Rays(tpc);
+    if not silent then printf "%o ", #Rays(tpc); end if;
+    tpc +:= Cone([Eltseq(j): j in elts[10*i-9..Min(10*i,#elts)]]);
+  end for;
+  _ := Rays(tpc);
+  return tpc;
+end function;
+
+// the supporting half-spaces of our totally positive cone
+// if you are not totally positive you are in at least one of them
+function get_faces(tpc)
+  rs := Rays(tpc);
+  faces := [];
+  for f in Facets(tpc) do
+    ker := Kernel(Transpose(Matrix([Eltseq(i): i in Rays(f)])));
+    assert Dimension(ker) eq 1;
+    v := ker.1;
+    signs := {Sign((v,Vector(Eltseq(i)))): i in rs};
+    assert {-1,1} notsubset signs;
+    Append(~faces,HalfspaceToPolyhedron(Eltseq(-rep{s: s in signs|s ne 0}*v),0));
+  end for;
+  return faces;
+end function;
+
+// try to find some units balanced away from one place
+function tpc_units(nf,n)
+  tpu,unit_list,bk,units_bk := unit_data(nf);
+  d := Degree(nf);
+  rp := RealPlaces(nf);
+  us := [];
+  exp := 0;
+  repeat
+    exp +:= 1;
+    prods := {@&*[tpu[i]^v[i]: i in [1..d-1]]: v in CartesianPower({-exp..exp},d-1)@};
+    for u in prods do
+      if u eq 1 then continue; end if;
+      ru := [Evaluate(u,r): r in rp];
+      m := rep{i: i in [1..d]|ru[i] gt 1};
+      if not IsDefined(us,m) and forall{i: i in [1..d]|i eq m or ru[i] lt 10^-n} and Max(Remove(ru,m))/Min(ru) lt 10^(d-2) then
+        us[m] := u;
+      end if;
+    end for;
+  until forall{i: i in [1..d]|IsDefined(us,i)};
+  return us;
+end function;
+
+small_tpc := func<nf,n|Cone([Eltseq(i): i in tpc_units(nf,n)])>;
+small_faces := func<nf,n|get_faces(small_tpc(nf,n))>;
+
+// We are going to want to remove sets of the form
+// {Tr(yr) >= Tr(xr) for all r in the trace-minimal cone}, by intersecting
+// with sets whose union is the complement (together with the boundary).
+// In order to control the combinatorial explosion, we take these sets to
+// be the other side of the first hyperplane, then the same
+// side of the first and other side of the second, etc.
+function dual_orthants(nf,tmc_mo: id := false)
+  mo := MaximalOrder(nf);
+  if id cmpeq false then id := 1*mo; end if;
+  dual_tmc_pm := [[HalfspaceToPolyhedron([Trace(s*Basis(id)[i]*t): i in [1..Degree(nf)]],0): s in [1,-1]]: t in tmc_mo];
+  outsides := [&meet [dual_tmc_pm[i,i eq n select 2 else 1]: i in [1..n]]: n in [1..#tmc_mo]];
+  allpos := &meet [i[1]: i in dual_tmc_pm];
+  return [outsides],allpos;
+end function;
+
+function dual_orthants_rotate(nf,tmc_mo: id := false)
+  mo := MaximalOrder(nf);
+  if id cmpeq false then id := 1*mo; end if;
+  dual_tmc_pm := [[HalfspaceToPolyhedron([Trace(s*Basis(id)[i]*t): i in [1..Degree(nf)]],0): s in [1,-1]]: t in tmc_mo];
+  outsides := [[&meet [Rotate(dual_tmc_pm,r)[i,i eq n select 2 else 1]: i in [1..n]]: n in [1..#tmc_mo]]: r in [0..#dual_tmc_pm-1]];
+  allpos := &meet [i[1]: i in dual_tmc_pm];
+  return outsides,allpos;
+end function;
+  
+function dual_orthants_all(nf,tmc_mo: id := false)
+  mo := MaximalOrder(nf);
+  if id cmpeq false then id := 1*mo; end if;
+  dual_tmc_pm := [[HalfspaceToPolyhedron([Trace(s*Basis(id)[i]*t): i in [1..Degree(nf)]],0): s in [1,-1]]: t in tmc_mo];
+  outsides := [&meet [dual_tmc_pm[i,v[i]]: i in [1..#tmc_mo]]: v in CartesianPower({1,2},#tmc_mo)|v ne <1: v in tmc_mo>];
+  allpos := &meet [i[1]: i in dual_tmc_pm];
+  return [outsides],allpos;
+end function;
+  
+// Find the minimal integral points in a polyhedron, to find minimal reducers
+// tpc_faces are the facets of a cone in the totally positive cone
+// This isn't exactly the same as if we use intpts, because some things
+// will be found for other rays, but it won't matter in the end
+
+// We use the trace condition to scoop out the polyhedra
+// Note to self: when we look for integral points, everything is in terms of
+// the basis of the ideal.
+function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent := false, id := false, threshold := 0)
+  f1 := Facets(pol)[1]; // the trace condition
+  all_found := {@@};
+  pols := [<pol,0>];
+  i := 0;
+  mo := MaximalOrder(nf);
+  d := Degree(nf);
+  nd := #duals; // now a list
+  d_ind := 1;
+  if id cmpeq false then id := 1*mo; end if;
+  bas := Basis(id);
+  invbas := Matrix(Q,[Eltseq(i): i in bas])^-1;
+  mpts := {@mo|@};
+  tr_id := [Trace(i): i in Basis(id)];
+  tr_bd := func<i|[HalfspaceToPolyhedron(tr_id,2^i),HalfspaceToPolyhedron([-i: i in tr_id],-2^(i+1))]>;
+  layer := -1;
+  tl := Universe(Vertices(pol));
+  while #pols gt 0 do
+    if pols[1,2] gt layer then
+      count := 0;
+      layer +:= 1;
+      if not silent then 
+        printf "starting layer %o with %o point%o found so far and %o polyhedr%o left of total volume %o\n", layer, #mpts, #mpts eq 1 select "" else "s", #pols, #pols eq 1 select "on" else "a", &+[RealField(10)|Volume(i[1]): i in pols|Dimension(i[1]) eq Degree(nf)];
+      end if;
+    end if;
+    count +:= 1;
+    if count mod 10 eq 0 and not silent then
+      printf "done %o polyhedra so far at layer %o with %o left\n", count, layer, #[x: x in [1..#pols]|pols[x,2] eq layer];
+    end if;
+    tb := tr_bd(pols[1,2]);
+    npol := pols[1,1] meet tb[1];
+    if IsEmpty(npol) then
+      pols := pols[2..#pols];
+      if verbose then "removing empty polyhedron,", #pols, "left"; end if;
+      npts := {@@};
+    elif Dimension(npol) lt d or Volume(npol) lt threshold then
+      pols := pols[2..#pols];
+      if verbose then "exhausting and removing small polyhedron,", #pols, "left"; end if;
+      npts := intpts(npol);
+    else
+      pols[1,2] +:= 1;
+      pols[1,1] := npol;
+      Rotate(~pols,-1);
+      if verbose then "listing integral points in next slice"; end if;
+      npts := intpts(npol meet tb[2]);
+    end if;
+    if verbose and #npts gt 0 then printf "found %o point%o, breaking up\n", #npts, (#npts ne 1 select "s" else ""); end if;
+    // get rid of the ones where the trace is equal with pt notin f1
+    idpts := {@&+[bas[i]*pt[i]: i in [1..#bas]]: pt in npts|tl!pt notin f1@};
+    all_found join:= {@x: x in npts@};
+    // next two lines: change to better condition instead of IsTotallyPositive
+    // id_elts := {@i: i in idpts|/*forall{f: f in Facets(pol)|tl!i notin f} and tl!i notin f1 and */ i notin mpts and IsTotallyPositive(i) and forall{x: x in mpts|not IsTotallyPositive(i-x)}@};
+    // id_elts := {@i: i in id_elts|forall{j: j in id_elts|not IsTotallyPositive(i-j)}@};
+    // this new version seems slightly faster, but not much in it
+    id_elts := {@i: i in idpts|i notin mpts and IsTotallyPositive(i) and forall{x: x in mpts|exists{t: t in tmc_mo|Trace((i-x)*t) lt 0}}@};
+    id_elts := {@i: i in id_elts|forall{j: j in id_elts|i eq j or exists{t: t in tmc_mo|Trace((i-j)*t) lt 0}}@};
+    if verbose and #id_elts gt 0 then printf "found %o new element%o\n", #id_elts, (#id_elts eq 1 select "" else "s"); end if;
+    for i in id_elts do
+      // have to change back to the basis of the ideal
+      // of course, we could just invert the matrix
+      // ipt := rep{pt: pt in npts|i eq &+[pt[j]*bas[j]: j in [1..d]]};
+      ipt := npts!Eltseq(Vector(Q,Eltseq(i))*invbas);
+      // pols := &cat [(tl!Eltseq(ipt) in p[1] select [<p[1] meet (t+tl!Eltseq(ipt)),p[2]>: t in duals[d_ind]|tl!Eltseq(ipt) in p[1]] else [p]): p in pols];
+      // pols := [<p[1] meet (t+tl!Eltseq(ipt)),p[2]>: p in pols, t in duals[d_ind]];
+      pols := &cat [Dimension(p[1]) eq d and Volume(p[1]) ge threshold select [<p[1] meet (t+tl!Eltseq(ipt)),p[2]>: t in duals[d_ind]] else [p]: p in pols];
+      // pols := [<p[1] meet (t+tl!Eltseq(ipt)),p[2]>: p in pols, t in nonpos_orthants|tl!Eltseq(ipt) in p[1]] cat [p: p in pols|tl!Eltseq(i) notin p[1]];
+      pols := [x: x in pols|not IsEmpty(x[1])];
+      if verbose then printf "broke up with the help of new point %o, now %o left\n", i, #pols; end if;
+    end for;
+    d_ind +:= 1; if d_ind gt #duals then d_ind := 1; end if;
+    mpts join:= id_elts;
+    if verbose then printf "%o new element%o found with %o polyhedr%o left\n", #id_elts, (#id_elts eq 1 select "" else "s"), #pols, (#pols eq 1 select "on" else "a"); end if;
+  end while;
+
+  if not silent then "done, returning", #mpts, "points"; end if;
+  return mpts, all_found;
+end function;
+
+function make_data(nf)
+  tpu,unit_list,bk,units_bk := unit_data(nf);
+  tmc := trace_minimal_cone(units_bk);
+  mo := MaximalOrder(nf);
+  d := Degree(nf);
+  tmc2 := tmc_normaliz(units_bk);
+  tmc_mo := [mo!i: i in tmc2];
+  // somewhat redundant but we do want pairs of equally minimal elements
+  tps := {@minimize(x,tmc,unit_list,units_bk): x in tpu_to_n_m(nf,100,1,tmc,unit_list,units_bk)@};
+  // this is a cone spanned by totally positive elements, so it is
+  // contained in the totally positive cone.
+  pc := positive_cone(tps);
+  faces := get_faces(pc);
+
+  // now the reducer polyhedra
+  ineqs_prod := [<[-Trace(mo.i*r): i in [1..d]],-Trace(r)>: r in tmc_mo];
+  units2 := [&*[tpu[i]^v[i]: i in [1..d-1]]: v in CartesianPower({-2..2},d-1)];
+  ineqs_u := [<[Trace(s*u*mo.i): i in [1..d]],0>: s in tps, u in units2];
+  pol0 := PolyhedronWithInequalities([x[1]: x in ineqs_u[1..10]],[0^^10]);
+  for i in [2..Ceiling(#ineqs_u/10)] do
+    pol0 meet:= PolyhedronWithInequalities([x[1]: x in ineqs_u[10*i-9..Min(10*i,#ineqs_u)]],[0^^Min(#ineqs_u,10)]);
+    printf "%o ", #Facets(pol0);
+  end for;
+  pols := [pol0 meet PolyhedronWithInequalities([x[1]],[x[2]]): x in ineqs_prod];
+  return tpu,unit_list,bk,units_bk,tmc_mo,pc,faces,pols;
+end function;
+
+// Generalized to work when the ideal is not the full maximal order.
+// The polyhedra are in coordinates given by the basis of the ideal
+// (which defaults to 1*O if not specified).
+function make_pols(nf: id := false)
+  tpu,unit_list,bk,units_bk := unit_data(nf);
+  tmc := trace_minimal_cone(units_bk);
+  mo := MaximalOrder(nf);
+  if id cmpeq false then id := 1*mo; end if;
+  bas := Basis(id);
+  min := Minimum(id);
+  d := Degree(nf);
+  tmc2 := tmc_normaliz(units_bk);
+  // tmc_id := [id!(min*i): i in tmc2];
+  tmc_mo := [mo!Eltseq(i): i in tmc2];
+  ineqs_prod := [<[-Trace(bas[i]*r): i in [1..d]],-min*Trace(r)>: r in tmc_mo];
+  hyp_rays := [PolyhedronWithInequalities([x[1]],[x[2]]): x in ineqs_prod];
+  
+  k := 0;
+  sus0 := {@@};
+  pol0 := PolyhedronWithInequalities([[Trace(bas[i]): i in [1..d]]],[0]);
+  // We create a cone that contains the totally positive cone by requiring that
+  // the products with a lot of totally positive elements have positive trace.
+  repeat
+    k +:= 1;
+    tps := {@minimize(x,tmc,unit_list,units_bk): x in tpu_to_n_m(nf,100*k,k,tmc,unit_list,units_bk)@};
+    units_k := [&*[tpu[i]^v[i]: i in [1..d-1]]: v in CartesianPower({-k..k},d-1)];
+    sus := {@s*u: s in tps, u in units_k@};
+    sus := get_minimal_3(Sort(sus,func<x,y|Trace(x)-Trace(y)>)) diff sus0;
+    sus0 join:= sus;
+    ineqs_u := [<[Trace(su*bas[i]): i in [1..d]],0>: su in sus];
+    stop_set := false; stop := 0;
+    for i in [2..Ceiling(#ineqs_u/10)] do
+      pol0 meet:= PolyhedronWithInequalities(r,[0^^#r]) where r is [x[1]: x in ineqs_u[10*i-9..Min(10*i,#ineqs_u)]];
+      printf "%o ", #Facets(pol0);
+      // But we have to make sure that it gives us proper polyhedra.
+      if forall{h: h in hyp_rays|IsPolytope(pol0 meet h)} and not stop_set then
+        printf "stopping soon ... "; stop := i+10; stop_set := true;
+      end if;
+      if i eq stop then break i; end if;
+    end for;
+  until stop_set;
+  printf "\n";
+  
+  pols := [pol0 meet h: h in hyp_rays];
+  return pols, tmc_mo;
+end function;
+
+function fast_reds_id(pols,tmc_mo,mo: id := false);
+  preds := &cat [intpts(i): i in pols];
+  nf := NumberField(mo);
+  duals := dual_orthants(nf,tmc_mo);
+  tpc_faces := small_faces(nf,4);
+  mreds := {@new_minimal_pts(pol,tpc_faces,nf,duals: id := id): pol in pols@};
+  // total positivity is already checked
+  min_reds := {@x: x in mreds|exists{c: c in tmc_mo|Trace((x-1)*c) lt 0}@};
+  return min_reds;
+end function;
+
+
+// call on output from the previous
+// this is an old version that assumes that the ideal is 1*O and that
+// finds all the integral points
+function fast_reds(pols,tmc_mo,mo)
+  preds := &cat [intpts(i): i in pols];
+  mreds := {@mo!Eltseq(i): i in preds@};
+  reds := {@mo|x: x in mreds|IsTotallyPositive(x) and exists{c: c in tmc_mo|Trace((x-1)*c) lt 0}@};
+  return reds;
+end function;
+
+// see new-check-gen-type for usage
+
+/*
+load "new-check-gen-type.mag";
+nf := needed[293];
+tpu,unit_list,bk,units_bk := unit_data(nf);
+zeta := AbsoluteValue(2*Roots(MinimalPolynomial(Evaluate(LSeries(nf),-1),1),Q)[1,1]);
+mo := MaximalOrder(nf);
+id := 1*mo;
+min := Minimum(id);
+pols,tmc_mo := make_pols(nf: id := id);
+duals := dual_orthants_rotate(nf,tmc_mo:id := id);
+tpc_faces := small_faces(nf,4);   
+mps := [];
+Append(~mps,new_minimal_pts(pols[1],tpc_faces,nf,duals[1..1],tmc_mo:verbose, threshold := 10));
+*/
