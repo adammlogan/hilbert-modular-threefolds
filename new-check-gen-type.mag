@@ -70,7 +70,7 @@ function test_nf(nf: use_tri := true)
           try Append(~mp,new_minimal_pts(p,tpc_faces,nf,duals,tmc_mo: id := id, threshold := 10));
           catch e
             "error on polyhedron", Index(pols,pol), "(I hope it was in normaliz)";
-            Append(~mps,new_minimal_pts(pols0[Index(pols,pol)],tpc_faces,nf,duals,tmc_mo: id := id, threshold := 10, use_tri := false));
+            Append(~mps,new_minimal_pts(pols0[Index(pols,pol)],tpc_faces,nf,duals,tmc_mo: id := id, threshold := 10));
             continue pol;
           end try;
         end for;
