@@ -1,0 +1,138 @@
+// collecting functions that use normaliz
+temp_filename := func<|Sprintf("%o-%o",Cputime(),Random(10^10))>;
+
+// remember, extremal rays of the trace-minimal cone are given in terms of
+// the basis of the maximal order
+function tmc_normaliz(units)
+  nf := NumberField(Universe(units));
+  mo := MaximalOrder(nf);
+  // this seems to make things faster; the bigger trace often doesn't
+  // actually contribute anything
+  Sort(~units,func<x,y|Trace(x)-Trace(y)>);
+  ineqs := {@ineq(x-1,mo): x in units|x ne 1@};
+  str := Sprintf("amb_space %o\ninequalities %o\n",Degree(nf),#ineqs);
+  for i in ineqs do
+    for j in i do str *:= IntegerToString(Z!j)*" "; end for;
+    str *:= "\n";
+  end for;
+  str *:= "ExtremeRays";
+  filename := temp_filename();
+  WriteBinary(filename*".in",BString(str));
+  System(Sprintf("normaliz %o",filename));
+
+  res := Split(Read(filename*".out"));
+  ind := rep{x: x in [2..#res]|Regexp("extreme rays:",res[x])};
+  nrays := StringToInteger(Split(res[1]," ")[1]);
+  rays := [[StringToInteger(i): i in Split(res[j]," ")[1..d]]: j in [ind+1..ind+nrays]] where d is Degree(nf);
+  System(Sprintf("rm %o.*",filename));
+  return rays;
+end function;
+
+// reduce conditions
+function make_str_hyp(tpu,n,nf,id)
+  d := Degree(nf);
+  mo := MaximalOrder(nf);
+  tps := {@&*[tpu[i]^j[i]: i in [1..#tpu]]: j in CartesianPower({-n..n},d-1)@};
+  homog_ineqs := [[Trace(t*b): b in Basis(id)]: t in tps];
+  str := Sprintf("amb_space %o\nconstraints %o\n",Degree(nf),#homog_ineqs);
+  for i in homog_ineqs do
+    for j in i do str *:= IntegerToString(Z!j)*" "; end for;
+    str *:= ">= 0\n";
+  end for;
+  str *:= "SupportHyperplanes\n";
+  filename := temp_filename();
+  WriteBinary(filename*".in",BString(str));
+  System(Sprintf("normaliz %o.in",filename));
+  res := Split(Read(filename*".out"));
+  System(Sprintf("rm %o.*",filename));
+  // parse for the support hyperplanes
+  ind := rep{x: x in [3..#res]|Regexp("support hyperplanes",res[x])};
+  npls := StringToInteger(Split(res[2]," ")[1]);
+  hyps := [[StringToInteger(i): i in Split(res[j]," ")]: j in [ind+1..ind+npls]];
+  str0 := Sprintf("amb_space %o\nconstraints %o\n",d,#hyps+1);
+  for i in hyps do
+    for j in i do str0 *:= IntegerToString(Z!j)*" "; end for;
+    str0 *:= ">= 0\n";
+  end for;
+  return str,hyps,str0;
+end function;
+
+// this is almost the same as in easy_reducers_rigorous
+// given ideal I, we look, for each a_i, b_i in mults, trs, for totally
+// positive elements x of I such that tr(xa_i) <= b_i, or < if strict is true
+function tp_trace(nf,id:mults := [1],trseqs := [[0]],verbose := false, silent := false, strict := false)
+  error if #mults ne #trseqs, "number of elements to multiply and the bounds must match";
+  error if exists{r: r in &cat trseqs|r lt 0 or r notin Z}, "bounds must be nonnegative integers";
+  tpu,unit_list,bk,units_bk := unit_data(nf);
+  d := Degree(nf);
+  mo := MaximalOrder(nf);
+  if id cmpeq false then id := 1*mo; end if;
+  strs := []; hypss := []; str0s := [];
+  anss := [];
+  for a in [1..#mults] do
+    success := false;
+    unit_exp := 1;
+    ans := [];
+    repeat
+      if verbose or not silent then "using products of units up to exponent", unit_exp; end if;
+      if #str0s lt unit_exp then
+        str,hyps,str0 := make_str_hyp(tpu,unit_exp,nf,id);
+        Append(~strs,str); Append(~hypss,hyps); Append(~str0s,str0);
+      else
+        hyps := hypss[unit_exp];
+        str0 := str0s[unit_exp];
+      end if;
+
+      // first test that we have a finite polyhedron
+      // I'm sure this could be done in normaliz too,
+      // and maybe it should since this is becoming a problem
+      pol := &meet [HalfspaceToPolyhedron(i,0): i in hyps];
+      pol meet:= HalfspaceToPolyhedron([-Trace(i*mults[a]): i in Basis(id)],-1);
+      if Dimension(InfinitePart(pol)) gt 0 then
+        if verbose then "polytope is infinite, need to cut it down with more units"; end if;
+        unit_exp +:= 1;
+        continue;
+      else
+        success := true;
+      end if;
+    until success;
+
+    // try imposing the conditions that the trace of a product with small
+    // units is nonnegative
+    tps := {@&*[tpu[i]^c[i]: i in [1..d-1]]: c in CartesianPower({-unit_exp..unit_exp},d-1)@};
+    hyps := [[Trace(t*i): i in Basis(id)]: t in tps];
+    str0 := Sprintf("amb_space %o\nconstraints %o\n",d,#hyps+1);
+    for i in hyps do
+      for j in i do str0 *:= Sprintf("%o ",j); end for;
+      str0 *:= ">= 0\n";
+    end for;
+    for b in trseqs[a] do
+      str := str0;
+      // and now that the specific condition
+      for i in Basis(id) do
+        str *:= Sprintf("%o ",Trace(i*mults[a]));
+      end for;
+      str *:= Sprintf("<%o %o\n", strict select "" else "=", b);
+      filename := temp_filename();
+      WriteBinary(filename*".in",BString(str));
+      if verbose then "calling normaliz to find ideal elements"; end if;
+      System(Sprintf("normaliz %o",filename));
+
+      res := Split(Read(filename*".out"));
+      System(Sprintf("rm %o.*",filename));
+      if verbose then "parsing them"; end if;
+      ind := rep{x: x in [2..#res]|Regexp("lattice points",res[x])};
+
+      npts := StringToInteger(Split(res[1]," ")[1]);
+      pts := [[StringToInteger(i): i in Split(res[j]," ")[1..d]]: j in [ind+1..ind+npts]];
+      idpts := {@&+[Eltseq(l)[i]*Basis(id)[i]: i in [1..d]]: l in pts@};
+      idpts := {@nf|i: i in idpts|IsTotallyPositive(i)@};
+      // this was Trace(i), but that is clearly wrong
+      assert forall{i: i in idpts|Trace(mults[a]*i) le b};
+      Append(~ans,idpts);
+    end for;
+    Append(~anss,ans);
+  end for;
+  return anss,hyps;
+end function;
+
