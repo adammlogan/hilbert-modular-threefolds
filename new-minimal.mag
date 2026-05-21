@@ -121,6 +121,36 @@ function dual_orthants_all(nf,tmc_mo: id := false)
   allpos := &meet [i[1]: i in dual_tmc_pm];
   return [outsides],allpos;
 end function;
+
+function compare(p1,p2)
+  // layers; this one can't be changed
+  if p2[2] gt p1[2] then return -1; elif p1[2] gt p2[2] then return 1; end if;
+  // these two could be reversed--need to experiment
+  // so far -1,1 seems best, though 1,1 is about the same
+  if Dimension(p2[1]) gt Dimension(p1[1]) then return -1;
+  elif Dimension(p1[1]) gt Dimension(p2[1]) then return 1; end if;
+  if Volume(p2[1]) gt Volume(p1[1]) then return 1;
+  elif Volume(p1[1]) gt Volume(p2[1]) then return -1; end if;
+  return 0;
+end function;
+
+test_in := func<pol,pols|exists{t: t in pols|not IsEmpty(t[1]) and pol[2] ge t[2] and forall{v: v in Vertices(pol[1])|v in t[1]}}>;
+
+// use binary search to put n in the right place in s, using f for comparison
+procedure binary_insert(~s,n,f)
+  if #s eq 0 then s := [n];
+  else
+    lb := 1; ub := #s+1;
+    while ub-lb gt 1 do
+      ind := Floor((lb+ub)/2);
+      c := f(s[ind],n);
+      if c le 0 then lb := ind; end if;
+      if c ge 0 then ub := ind; end if;
+    end while;
+    ind := (f(s[lb],n) eq -1 select ub else lb);
+    Insert(~s,ind,n);
+  end if;
+end procedure;
   
 // Find the minimal integral points in a polyhedron, to find minimal reducers
 // tpc_faces are the facets of a cone in the totally positive cone
@@ -130,7 +160,7 @@ end function;
 // We use the trace condition to scoop out the polyhedra
 // Note to self: when we look for integral points, everything is in terms of
 // the basis of the ideal.
-function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent := false, id := false, threshold := 0)
+function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent := false, id := false, threshold := 100)
   f1 := Facets(pol)[1]; // the trace condition
   all_found := {@@};
   pols := [<pol,0>];
@@ -144,15 +174,30 @@ function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent
   invbas := Matrix(Q,[Eltseq(i): i in bas])^-1;
   mpts := {@mo|@};
   tr_id := [Trace(i): i in Basis(id)];
-  tr_bd := func<i|[HalfspaceToPolyhedron(tr_id,2^i),HalfspaceToPolyhedron([-i: i in tr_id],-2^(i+1))]>;
+  // tr_bd := func<i|[HalfspaceToPolyhedron(tr_id,2^i),HalfspaceToPolyhedron([-i: i in tr_id],-2^(i+1))]>;
+  // better: make it adaptive so that this is done only far out
+  // e.g., start with 10 2's, then 10 3/2, 4/3's, then 10 4/3, 5/4, 6/5's, etc.
+  ms := func<d|[1+1/i: i in [d..2*d-1]]>;
+  all_ms := &cat [ms(i): j in [1..10], i in [1..100]]; // surely enough
+  tr_bd := func<i|[HalfspaceToPolyhedron(tr_id,&*all_ms[1..i]),HalfspaceToPolyhedron([-i: i in tr_id],-&*all_ms[1..i+1]),HalfspaceToPolyhedron(tr_id,&*all_ms[1..i+1])]>;
+
   layer := -1;
   tl := Universe(Vertices(pol));
+
+  R5 := RealField(5);
+  R10 := RealField(10);
+  if not silent then
+    max_layer := rep{x: x in [1..50000]|IsEmpty(pol meet tr_bd(x)[1])};
+    "maximum layer:", max_layer;
+  end if;
   while #pols gt 0 do
+    // now we keep it sorted
+    // Sort(~pols,compare); // we may want to experiment with this
     if pols[1,2] gt layer then
       count := 0;
       layer +:= 1;
       if not silent then 
-        printf "starting layer %o with %o point%o found so far and %o polyhedr%o left of total volume %o\n", layer, #mpts, #mpts eq 1 select "" else "s", #pols, #pols eq 1 select "on" else "a", &+[RealField(10)|Volume(i[1]): i in pols|Dimension(i[1]) eq Degree(nf)];
+        printf "starting layer %o with %o point%o found so far and %o polyhedr%o left of total volume %o and maximal volume %o\n", layer, #mpts, #mpts eq 1 select "" else "s", #pols, #pols eq 1 select "on" else "a", &+[R10|Volume(i[1]): i in pols|not IsEmpty(i[1]) and Dimension(i[1]) eq Degree(nf)], R10!Max([0] cat [Volume(i[1]): i in pols|Dimension(i[1]) eq Degree(nf)]);
       end if;
     end if;
     count +:= 1;
@@ -160,23 +205,39 @@ function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent
       printf "done %o polyhedra so far at layer %o with %o left\n", count, layer, #[x: x in [1..#pols]|pols[x,2] eq layer];
     end if;
     tb := tr_bd(pols[1,2]);
-    npol := pols[1,1] meet tb[1];
+    // this may be important--need to take them in better order
+    // but now that we sort, it's always 1
+    /*min_dim := Min([Dimension(i[1]): i in pols]);
+    dim_min := [x: x in [1..#pols]|Dimension(pols[x,1]) eq min_dim];
+    min_vol,min_vol_ind := Min([Volume(pols[i,1]): i in dim_min]);*/
+    mdv := 1;
+    // used to just take pols[1,1], or equivalently mdv := 1
+    npol := pols[mdv,1] meet tb[1]; // intersection should no longer be needed
+    // npol := pols[1,1] meet tb[1];
     if IsEmpty(npol) then
-      pols := pols[2..#pols];
+      Remove(~pols,mdv);
       if verbose then "removing empty polyhedron,", #pols, "left"; end if;
       npts := {@@};
-    elif Dimension(npol) lt d or Volume(npol) lt threshold then
-      pols := pols[2..#pols];
+    // elif Dimension(npol) lt d or Volume(npol) lt threshold then
+    // elif Dimension(npol) eq 0 or (Dimension(npol) eq d and Volume(npol) lt threshold) then
+    elif Volume(BoundingBox(npol)) lt threshold^d or (Dimension(npol) eq d and Volume(npol) lt threshold) then
+      Remove(~pols,mdv);
       if verbose then "exhausting and removing small polyhedron,", #pols, "left"; end if;
       npts := intpts(npol);
     else
-      pols[1,2] +:= 1;
-      pols[1,1] := npol;
-      Rotate(~pols,-1);
-      if verbose then "listing integral points in next slice"; end if;
-      npts := intpts(npol meet tb[2]);
+      newpol := <npol meet tb[3],pols[mdv,2]+1>;
+      Remove(~pols,mdv);
+      if not test_in(newpol,pols) then
+        binary_insert(~pols,newpol,compare);
+      end if;
+      /*pols[mdv,2] +:= 1;
+      pols[mdv,1] := npol meet tb[3];
+      pols := Append(Remove(pols,mdv),pols[mdv]);*/
+      slice := npol meet tb[2];
+      if verbose and not IsEmpty(slice) then "listing integral points in next slice of dimension", Dimension(slice), "and bounding box size", R5!Volume(BoundingBox(slice)); end if;
+      npts := [Eltseq(x): x in intpts(slice: use_normaliz := Dimension(npol) eq d)];
     end if;
-    if verbose and #npts gt 0 then printf "found %o point%o, breaking up\n", #npts, (#npts ne 1 select "s" else ""); end if;
+    // if verbose and #npts gt 0 then printf "found %o point%o, breaking up\n", #npts, (#npts ne 1 select "s" else ""); end if;
     // get rid of the ones where the trace is equal with pt notin f1
     idpts := {@&+[bas[i]*pt[i]: i in [1..#bas]]: pt in npts|tl!pt notin f1@};
     all_found join:= {@x: x in npts@};
@@ -186,21 +247,32 @@ function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent
     // this new version seems slightly faster, but not much in it
     id_elts := {@i: i in idpts|i notin mpts and IsTotallyPositive(i) and forall{x: x in mpts|exists{t: t in tmc_mo|Trace((i-x)*t) lt 0}}@};
     id_elts := {@i: i in id_elts|forall{j: j in id_elts|i eq j or exists{t: t in tmc_mo|Trace((i-j)*t) lt 0}}@};
-    if verbose and #id_elts gt 0 then printf "found %o new element%o\n", #id_elts, (#id_elts eq 1 select "" else "s"); end if;
+    if verbose and #id_elts gt 0 then printf "found %o new element%o, breaking up\n", #id_elts, (#id_elts eq 1 select "" else "s"); end if;
     for i in id_elts do
       // have to change back to the basis of the ideal
       // of course, we could just invert the matrix
-      // ipt := rep{pt: pt in npts|i eq &+[pt[j]*bas[j]: j in [1..d]]};
       ipt := npts!Eltseq(Vector(Q,Eltseq(i))*invbas);
       // pols := &cat [(tl!Eltseq(ipt) in p[1] select [<p[1] meet (t+tl!Eltseq(ipt)),p[2]>: t in duals[d_ind]|tl!Eltseq(ipt) in p[1]] else [p]): p in pols];
       // pols := [<p[1] meet (t+tl!Eltseq(ipt)),p[2]>: p in pols, t in duals[d_ind]];
-      pols := &cat [Dimension(p[1]) eq d and Volume(p[1]) ge threshold select [<p[1] meet (t+tl!Eltseq(ipt)),p[2]>: t in duals[d_ind]] else [p]: p in pols];
+      // pols := &cat [Dimension(p[1]) eq d and Volume(p[1]) ge threshold select [<p[1] meet (t+tl!Eltseq(ipt)),p[2]>: t in duals[d_ind]] else [p]: p in pols];
       // pols := [<p[1] meet (t+tl!Eltseq(ipt)),p[2]>: p in pols, t in nonpos_orthants|tl!Eltseq(ipt) in p[1]] cat [p: p in pols|tl!Eltseq(i) notin p[1]];
+      split_pols := [x: x in pols|Dimension(x[1]) eq d and Volume(x[1]) ge threshold];
+      pols := [x: x in pols|Dimension(x[1]) lt d or Volume(x[1]) lt threshold];
+      splits := Setseq({@<p[1] meet (t+tl!Eltseq(ipt)),p[2]>: p in split_pols, t in duals[d_ind]@});
+      Sort(~splits,compare);
+      keep := [x: x in [1..#splits]|not test_in(splits[x],pols cat Remove(splits,x))];
+      for k in keep do
+        binary_insert(~pols,splits[k],compare);
+      end for;
+      
+      if verbose then "broke up using new point", i; end if;
       pols := [x: x in pols|not IsEmpty(x[1])];
-      if verbose then printf "broke up with the help of new point %o, now %o left\n", i, #pols; end if;
+      if verbose then "removed empties, now", #pols, "left"; end if;
     end for;
     d_ind +:= 1; if d_ind gt #duals then d_ind := 1; end if;
     mpts join:= id_elts;
+    // "we still have everything:", forall(but){x: x in mip|exists{p: p in pols|tl!Eltseq(x) in p[1]} or x in mpts join id_elts or exists{s: s in mpts join id_elts|forall{t: t in tmc_mo|Trace((x-s)*t) ge 0}}};
+
     if verbose then printf "%o new element%o found with %o polyhedr%o left\n", #id_elts, (#id_elts eq 1 select "" else "s"), #pols, (#pols eq 1 select "on" else "a"); end if;
   end while;
 
