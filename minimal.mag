@@ -150,7 +150,7 @@ function intpts(poly:depth := 0, verbose := false, threshold := 20, strict := fa
     catch e; end try;
   end if;
   tl := Universe(Vertices(poly));
-  d := Dimension(poly);
+  d := Dimension(tl);
   lb,ub := box(poly);
   dists := [Z|ub[i]-lb[i]: i in [1..#lb]];
   if verbose then " "^depth*"considering polyhedron with bounding box sizes", dists; end if;
