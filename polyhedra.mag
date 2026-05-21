@@ -296,7 +296,7 @@ function union_decompose(polyhedra: verbose := false, silent := false, skip_incl
       // we don't need to check polyhedra contained in another;
       // anything contained in the smaller one is contained in the larger
       // they automatically come in order now
-      if j notin exclude and i ne j and polyhedra[i] meet polyhedra[j] eq polyhedra[i] then
+      if j notin exclude and i ne j and /*polyhedra[i] meet polyhedra[j] eq polyhedra[i]*/ forall{v: v in Vertices(polyhedra[i])|v in polyhedra[j]} then
         if verbose then "polyhedron", i, "is contained in polyhedron", j; end if;
         Include(~exclude,i);
         continue i;
