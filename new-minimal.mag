@@ -162,7 +162,20 @@ end procedure;
 // the basis of the ideal.
 
 // Would it help to start by scooping out the known points?
-function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent := false, id := false, threshold := 100, known_id_pts := {@@})
+
+// Another new idea: use LLL to try to orient the polyhedron with the lattice
+// Note that this assumes we have a simplex
+function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent := false, id := false, threshold := 100, known_id_pts := {@@}, use_lll := (#Vertices(pol) eq Dimension(pol)+1))
+  if use_lll then
+    if not silent then "using lll to improve the basis"; end if;
+    pol0 := pol;
+    lat := LatticeWithBasis(Transpose(Matrix([Eltseq(i): i in Vertices(pol)|i ne Parent(i)!0])));
+    lll,lllto := LLL(lat);
+    assert ChangeRing(lllto,Q)*Matrix(Basis(lat)) eq Matrix(Basis(lll));
+    pol := Polyhedron(Append([Eltseq(i): i in Rows(Transpose(Matrix(Basis(lll))))],[0^^Dimension(pol)]));
+    _,topol0 := IsIsomorphic(pol,pol0);
+  end if;
+  
   f1 := Facets(pol)[1]; // the trace condition
   all_found := {@@};
   pols := [<pol,0>];
@@ -172,10 +185,10 @@ function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent
   nd := #duals; // now a list
   d_ind := 1;
   if id cmpeq false then id := 1*mo; end if;
-  bas := Basis(id);
+  bas := (use_lll select [&+[v[i]*Basis(id)[i]: i in [1..d]]: v in Rows(Transpose(lllto)^-1)] else Basis(id));
   invbas := Matrix(Q,[Eltseq(i): i in bas])^-1;
   mpts := {@mo|@};
-  tr_id := [Trace(i): i in Basis(id)];
+  tr_id := [Trace(i): i in bas];
   // tr_bd := func<i|[HalfspaceToPolyhedron(tr_id,2^i),HalfspaceToPolyhedron([-i: i in tr_id],-2^(i+1))]>;
   // better: make it adaptive so that this is done only far out
   // e.g., start with 10 2's, then 10 3/2, 4/3's, then 10 4/3, 5/4, 6/5's, etc.
@@ -226,8 +239,8 @@ function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent
     // There are some polyhedra such as pols[2,3] for field 274 that cause
     // problems for normaliz somehow.  The condition on Volume(BoundingBox())
     // is a crude way to deal with them, which makes easy examples slower.
-    // elif Volume(BoundingBox(npol)) lt threshold^d or (Dimension(npol) eq d and Volume(npol) lt threshold and Volume(BoundingBox(npol)) lt threshold^(2*d)) then
-    elif Volume(BoundingBox(npol)) lt threshold^d or (Dimension(npol) eq d and Volume(npol) lt threshold and Volume(npol) gt 10^-5) or (Dimension(npol) eq d and Volume(npol) le 10^-5 and Volume(BoundingBox(npol)) lt threshold^(2*d)) then      
+    elif Volume(BoundingBox(npol)) lt threshold^d or (Dimension(npol) eq d and Volume(npol) lt threshold and Volume(BoundingBox(npol)) lt threshold^(2*d)) then
+    // elif Volume(BoundingBox(npol)) lt threshold^d or (Dimension(npol) eq d and Volume(npol) lt threshold and Volume(npol) gt 10^-5) or (Dimension(npol) eq d and Volume(npol) le 10^-5 and Volume(BoundingBox(npol)) lt threshold^(2*d)) then      
       Remove(~pols,mdv);
       if verbose then "exhausting and removing small polyhedron,", #pols, "left"; end if;
       npts := intpts(npol);
