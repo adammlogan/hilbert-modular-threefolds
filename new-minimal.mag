@@ -223,7 +223,11 @@ function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent
     // elif Dimension(npol) lt d or Volume(npol) lt threshold then
     // elif Dimension(npol) eq 0 or (Dimension(npol) eq d and Volume(npol) lt threshold) then
     // elif Volume(BoundingBox(npol)) lt threshold^d or (Dimension(npol) eq d and Volume(npol) lt threshold) then
-    elif Volume(BoundingBox(npol)) lt threshold^d or (Dimension(npol) eq d and Volume(npol) lt threshold and Volume(BoundingBox(npol)) lt threshold^(2*d)) then
+    // There are some polyhedra such as pols[2,3] for field 274 that cause
+    // problems for normaliz somehow.  The condition on Volume(BoundingBox())
+    // is a crude way to deal with them, which makes easy examples slower.
+    // elif Volume(BoundingBox(npol)) lt threshold^d or (Dimension(npol) eq d and Volume(npol) lt threshold and Volume(BoundingBox(npol)) lt threshold^(2*d)) then
+    elif Volume(BoundingBox(npol)) lt threshold^d or (Dimension(npol) eq d and Volume(npol) lt threshold and Volume(npol) gt 10^-5) or (Dimension(npol) eq d and Volume(npol) le 10^-5 and Volume(BoundingBox(npol)) lt threshold^(2*d)) then      
       Remove(~pols,mdv);
       if verbose then "exhausting and removing small polyhedron,", #pols, "left"; end if;
       npts := intpts(npol);
@@ -279,7 +283,7 @@ function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent
     if verbose then printf "%o new element%o found with %o polyhedr%o left\n", #id_elts, (#id_elts eq 1 select "" else "s"), #pols, (#pols eq 1 select "on" else "a"); end if;
   end while;
 
-  if not silent then printf "done, returning %o point%o", #mpts, #mpts eq 1 select "" else "s"; end if;
+  if not silent then printf "done, returning %o point%o\n", #mpts, #mpts eq 1 select "" else "s"; end if;
   return mpts, all_found;
 end function;
 
