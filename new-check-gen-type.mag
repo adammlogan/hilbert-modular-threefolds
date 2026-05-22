@@ -39,7 +39,7 @@ function test_nf(nf: use_tri := true, threshold := 100, verbose := false, silent
   fail := false;
   cp := Cputime();
   genus_reps, cl_reps := genus_cl_reps(nf);
-  "class number is", #cl_reps, "with", #genus_reps, "genera";
+  "class number is", #cl_reps, "with", #genus_reps, "gen"*(#genus_reps eq 1 select "us" else "era");
   tpu,unit_list,bk,units_bk := unit_data(nf);
   zeta := AbsoluteValue(2*Roots(MinimalPolynomial(Evaluate(LSeries(nf),-1),1),Q)[1,1]);
   vs := [];
