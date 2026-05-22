@@ -165,7 +165,7 @@ end procedure;
 
 // Another new idea: use LLL to try to orient the polyhedron with the lattice
 // Note that this assumes we have a simplex
-function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent := false, id := false, threshold := 100, known_id_pts := {@@}, use_lll := (#Vertices(pol) eq Dimension(pol)+1))
+function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent := false, id := false, threshold := 100, known_id_pts := {@@}, use_lll := (#Vertices(pol) eq Dimension(pol)+1 and Volume(pol) le 1))
   if use_lll then
     if not silent then "using lll to improve the basis"; end if;
     pol0 := pol;
@@ -174,6 +174,12 @@ function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent
     assert ChangeRing(lllto,Q)*Matrix(Basis(lat)) eq Matrix(Basis(lll));
     pol := Polyhedron(Append([Eltseq(i): i in Rows(Transpose(Matrix(Basis(lll))))],[0^^Dimension(pol)]));
     _,topol0 := IsIsomorphic(pol,pol0);
+    _,topol := IsIsomorphic(pol0,pol);
+    // !!! need to make sure this is right
+    // also, it might actually be slower when we have a lot of points--
+    // maybe save it for the cases where the volume is small
+    dduals := [[i*Transpose(lllto): i in d]: d in duals];
+    duals := dduals;
   end if;
   
   f1 := Facets(pol)[1]; // the trace condition
@@ -235,11 +241,11 @@ function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent
       npts := {@@};
     // elif Dimension(npol) lt d or Volume(npol) lt threshold then
     // elif Dimension(npol) eq 0 or (Dimension(npol) eq d and Volume(npol) lt threshold) then
-    // elif Volume(BoundingBox(npol)) lt threshold^d or (Dimension(npol) eq d and Volume(npol) lt threshold) then
+    elif Volume(BoundingBox(npol)) lt threshold^d or (Dimension(npol) eq d and Volume(npol) lt threshold) then
     // There are some polyhedra such as pols[2,3] for field 274 that cause
     // problems for normaliz somehow.  The condition on Volume(BoundingBox())
     // is a crude way to deal with them, which makes easy examples slower.
-    elif Volume(BoundingBox(npol)) lt threshold^d or (Dimension(npol) eq d and Volume(npol) lt threshold and Volume(BoundingBox(npol)) lt threshold^(2*d)) then
+    // elif Volume(BoundingBox(npol)) lt threshold^d or (Dimension(npol) eq d and Volume(npol) lt threshold and Volume(BoundingBox(npol)) lt threshold^(2*d)) then
     // elif Volume(BoundingBox(npol)) lt threshold^d or (Dimension(npol) eq d and Volume(npol) lt threshold and Volume(npol) gt 10^-5) or (Dimension(npol) eq d and Volume(npol) le 10^-5 and Volume(BoundingBox(npol)) lt threshold^(2*d)) then      
       Remove(~pols,mdv);
       if verbose then "exhausting and removing small polyhedron,", #pols, "left"; end if;
@@ -298,6 +304,13 @@ function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent
 
   if not silent then printf "done, returning %o point%o\n", #mpts, #mpts eq 1 select "" else "s"; end if;
   return mpts, all_found;
+end function;
+
+// function to tell whether two lists of reducers are equivalent
+function test_same(pts1,pts2,tmc_mo)
+  good1 := forall{x: x in pts1|exists{y: y in pts2|forall{t: t in tmc_mo|Trace((x-y)*t) ge 0}}};
+  good2 := forall{x: x in pts2|exists{y: y in pts1|forall{t: t in tmc_mo|Trace((x-y)*t) ge 0}}};
+  return good1,good2;
 end function;
 
 function make_data(nf)

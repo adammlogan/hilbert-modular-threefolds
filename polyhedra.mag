@@ -317,7 +317,7 @@ function union_decompose(polyhedra: verbose := false, silent := false, skip_incl
   if verbose then "computing volumes"; end if;
   vols := [Volume(i): i in polyhedra];
   ct := 0;
-  if verbose then "starting with", #polyhedra, "polytopes with", #bad_pairs, "intersecting pairs"; end if;
+  if not silent then "starting with", #polyhedra, "polytopes with", #bad_pairs, "intersecting pairs"; end if;
   while #bad_pairs gt 0 do
     ct +:= 1;
     pair := bad_pairs[#bad_pairs];
@@ -326,7 +326,7 @@ function union_decompose(polyhedra: verbose := false, silent := false, skip_incl
     // try the easy case where one polyhedron is contained in the other;
     // we can just ignore it (but now this shouldn't happen)
     if &meet [polyhedra[i]: i in pair] eq polyhedra[minv] then
-      if not silent then "one polytope is contained in another; possible bug?"; end if;
+      "one polytope is contained in another; possible bug?";
       Remove(~polyhedra,minv);
       Remove(~vols,minv);
       bad_pairs := {@{i gt minv select i-1 else i: i in p}: p in bad_pairs|minv notin p@};
