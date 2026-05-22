@@ -39,6 +39,7 @@ function test_nf(nf: use_tri := true, threshold := 100, verbose := false, silent
   fail := false;
   cp := Cputime();
   genus_reps, cl_reps := genus_cl_reps(nf);
+  "class number is", #cl_reps, "with", #genus_reps, "genera";
   tpu,unit_list,bk,units_bk := unit_data(nf);
   zeta := AbsoluteValue(2*Roots(MinimalPolynomial(Evaluate(LSeries(nf),-1),1),Q)[1,1]);
   vs := [];
@@ -79,9 +80,9 @@ function test_nf(nf: use_tri := true, threshold := 100, verbose := false, silent
       end for;
       "time taken to find minimal reducers:", Cputime(cp);
       // mps := [new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: id := id, threshold := 10): pol in pols];
-      printf "making polyhedra ... ";
       all_mps := &join mps;
       min_mps := {@x: x in all_mps|forall{y: y in all_mps|x eq y or exists{t: t in tmc_mo|Trace((x-y)*t) lt 0}}@};
+      printf "making %o polyhedra ... ", #min_mps;
       polys := make_polyhedra(units_bk cat unit_list,Include(min_mps,Minimum(id)));
       "done";
       // The discriminant times the norm comes from the covolume of the
