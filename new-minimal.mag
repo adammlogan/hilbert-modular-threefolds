@@ -181,6 +181,8 @@ function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent
     // maybe save it for the cases where the volume is small
     dduals := [[i*Transpose(lllto): i in d]: d in duals];
     duals := dduals;
+  else
+    lllto := 0; // ignored
   end if;
   
   f1 := Facets(pol)[1]; // the trace condition
@@ -279,11 +281,16 @@ function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent
       // have to change back to the basis of the ideal
       // of course, we could just invert the matrix
       ipt := npts!Eltseq(Vector(Q,Eltseq(i))*invbas);
+      assert tl!Eltseq(ipt) in npol;
       // pols := &cat [(tl!Eltseq(ipt) in p[1] select [<p[1] meet (t+tl!Eltseq(ipt)),p[2]>: t in duals[d_ind]|tl!Eltseq(ipt) in p[1]] else [p]): p in pols];
       // pols := [<p[1] meet (t+tl!Eltseq(ipt)),p[2]>: p in pols, t in duals[d_ind]];
       // pols := &cat [Dimension(p[1]) eq d and Volume(p[1]) ge threshold select [<p[1] meet (t+tl!Eltseq(ipt)),p[2]>: t in duals[d_ind]] else [p]: p in pols];
       // pols := [<p[1] meet (t+tl!Eltseq(ipt)),p[2]>: p in pols, t in nonpos_orthants|tl!Eltseq(ipt) in p[1]] cat [p: p in pols|tl!Eltseq(i) notin p[1]];
-      test_pol := func<x|Dimension(x[1]) eq d and Volume(x[1]) ge threshold and tl!Eltseq(ipt) in x[1]>;
+      // not sure whether we want the test tl!Eltseq(ipt) in x[1]
+      // This may be a reasonable compromise.  We break up a polyhedron if
+      // it is large and contains the point, or if it is the one where we
+      // found the point and we haven't exhausted it, or it is big.
+      test_pol := func<x|(Dimension(x[1]) eq d and Volume(x[1]) ge threshold and tl!Eltseq(ipt) in x[1]) or (x[1] eq npol meet tb[3]) or Volume(x[1]) gt &+[Volume(i[1]): i in pols]/threshold>;
       split_pols := [x: x in pols|test_pol(x)];
       pols := [x: x in pols|not test_pol(x)];
       splits := Setseq({@<p[1] meet (t+tl!Eltseq(ipt)),p[2]>: p in split_pols, t in duals[d_ind]@});
