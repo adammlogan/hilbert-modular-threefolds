@@ -66,7 +66,9 @@ function test_nf(nf: use_tri := true, threshold := 100, verbose := false, silent
       tpc_faces := small_faces(nf,4);   
       mps := [];
       cp := Cputime();
+      "starting to find reducers";
       for pol in pols do
+        if not silent then "--- starting triangulation of polyhedron", Index(pols,pol); end if;
         mp := [];
         for p in pol do
           try Append(~mp,new_minimal_pts(p,tpc_faces,nf,duals,tmc_mo: id := id, threshold := threshold, verbose := verbose, silent := silent));

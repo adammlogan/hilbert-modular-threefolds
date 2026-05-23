@@ -166,6 +166,7 @@ end procedure;
 // Another new idea: use LLL to try to orient the polyhedron with the lattice
 // Note that this assumes we have a simplex
 function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent := false, id := false, threshold := 100, known_id_pts := {@@}, use_lll := (#Vertices(pol) eq Dimension(pol)+1 and Volume(pol) le 1))
+  if not silent then "--- entering new_minimal_pts"; end if;
   if use_lll then
     if not silent then "using lll to improve the basis"; end if;
     pol0 := pol;
@@ -282,8 +283,9 @@ function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent
       // pols := [<p[1] meet (t+tl!Eltseq(ipt)),p[2]>: p in pols, t in duals[d_ind]];
       // pols := &cat [Dimension(p[1]) eq d and Volume(p[1]) ge threshold select [<p[1] meet (t+tl!Eltseq(ipt)),p[2]>: t in duals[d_ind]] else [p]: p in pols];
       // pols := [<p[1] meet (t+tl!Eltseq(ipt)),p[2]>: p in pols, t in nonpos_orthants|tl!Eltseq(ipt) in p[1]] cat [p: p in pols|tl!Eltseq(i) notin p[1]];
-      split_pols := [x: x in pols|Dimension(x[1]) eq d and Volume(x[1]) ge threshold];
-      pols := [x: x in pols|Dimension(x[1]) lt d or Volume(x[1]) lt threshold];
+      test_pol := func<x|Dimension(x[1]) eq d and Volume(x[1]) ge threshold and tl!Eltseq(ipt) in x[1]>;
+      split_pols := [x: x in pols|test_pol(x)];
+      pols := [x: x in pols|not test_pol(x)];
       splits := Setseq({@<p[1] meet (t+tl!Eltseq(ipt)),p[2]>: p in split_pols, t in duals[d_ind]@});
       Sort(~splits,compare);
       keep := [x: x in [1..#splits]|not test_in(splits[x],pols cat Remove(splits,x))];
