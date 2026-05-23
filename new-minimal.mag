@@ -290,7 +290,8 @@ function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent
       // This may be a reasonable compromise.  We break up a polyhedron if
       // it is large and contains the point, or if it is the one where we
       // found the point and we haven't exhausted it, or it is big.
-      test_pol := func<x|(Dimension(x[1]) eq d and Volume(x[1]) ge threshold and tl!Eltseq(ipt) in x[1]) or (x[1] eq npol meet tb[3]) or Volume(x[1]) gt &+[Volume(i[1]): i in pols]/threshold>;
+      if verbose then "breaking up using new point", i; end if;
+      test_pol := func<x|(Dimension(x[1]) eq d and Volume(x[1]) ge threshold and tl!Eltseq(ipt) in x[1]) or (x[1] eq npol meet tb[3] and Volume(x[1]) ge threshold) or Volume(x[1]) gt &+[Volume(i[1]): i in pols]/threshold>;
       split_pols := [x: x in pols|test_pol(x)];
       pols := [x: x in pols|not test_pol(x)];
       splits := Setseq({@<p[1] meet (t+tl!Eltseq(ipt)),p[2]>: p in split_pols, t in duals[d_ind]@});
@@ -300,7 +301,6 @@ function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent
         binary_insert(~pols,splits[k],compare);
       end for;
       
-      if verbose then "broke up using new point", i; end if;
       pols := [x: x in pols|not IsEmpty(x[1])];
       if verbose then "removed empties, now", #pols, "left"; end if;
     end for;
