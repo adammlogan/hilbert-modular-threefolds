@@ -34,7 +34,7 @@ function genus_cl_reps(nf)
   return genus_reps, cl_reps;
 end function;
 
-function test_nf(nf: use_tri := true, threshold := 100, verbose := false, silent := false)
+function test_nf(nf: use_tri := true, threshold := 100, lll_threshold := 100, verbose := false, silent := false)
   "starting field defined by", DefiningPolynomial(nf);
   fail := false;
   cp := Cputime();
@@ -71,10 +71,10 @@ function test_nf(nf: use_tri := true, threshold := 100, verbose := false, silent
         if not silent then "--- starting triangulation of polyhedron", Index(pols,pol); end if;
         mp := [];
         for p in pol do
-          try Append(~mp,new_minimal_pts(p,tpc_faces,nf,duals,tmc_mo: id := id, threshold := threshold, verbose := verbose, silent := silent));
+          try Append(~mp,new_minimal_pts(p,tpc_faces,nf,duals,tmc_mo: id := id, threshold := threshold, lll_threshold := lll_threshold, verbose := verbose, silent := silent));
           catch e
             "error on polyhedron", Index(pols,pol), "(I hope it was in normaliz)";
-            Append(~mp,new_minimal_pts(pols0[Index(pols,pol)],tpc_faces,nf,duals,tmc_mo: id := id, threshold := threshold));
+            Append(~mp,new_minimal_pts(pols0[Index(pols,pol)],tpc_faces,nf,duals,tmc_mo: id := id, threshold := threshold, lll_threshold := lll_threshold, verbose := verbose, silent := silent));
             continue pol;
           end try;
         end for;
