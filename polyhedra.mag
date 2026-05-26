@@ -271,11 +271,19 @@ function union_vol_slice(polyhedra:indent := 0,verbose := false)
   end if;
 end function;
 
+contained_old := func<x,y|x meet y eq x>;
+contained := func<x,y|forall{v: v in Vertices(x)|v in y}>;
+
+overlap_old := func<x,y,d|Dimension(x meet y) eq d>;
+// this is wrong
+// overlap := func<x,y,d|Dimension(x) eq d and Dimension(y) eq d and (forall{f: f in Inequalities(x)|exists{v: v in Vertices(y)|&+[Eltseq(f[1])[i]*Eltseq(v)[i]: i in [1..d]] gt f[2]}})>;
+// Can we improve?  Does it help to use normaliz here?
+
 // try to break up a union into polyhedra that are disjoint
 // note: "verbose" takes precedence over "silent"
 // we might want to skip the initial test for inclusion, now that we do it
 // another way
-function union_decompose(polyhedra: verbose := false, silent := false, skip_incl := false)
+function old_union_decompose(polyhedra: verbose := false, silent := false, skip_incl := false)
   if #polyhedra eq 0 then return 0,0,[]; end if;
   dim := #Eltseq(Rep(Vertices(polyhedra[1])));
   if exists{p: p in polyhedra|Dimension(p) lt dim} then
@@ -296,7 +304,7 @@ function union_decompose(polyhedra: verbose := false, silent := false, skip_incl
       // we don't need to check polyhedra contained in another;
       // anything contained in the smaller one is contained in the larger
       // they automatically come in order now
-      if j notin exclude and i ne j and /*polyhedra[i] meet polyhedra[j] eq polyhedra[i]*/ forall{v: v in Vertices(polyhedra[i])|v in polyhedra[j]} then
+      if j notin exclude and i ne j and /*polyhedra[i] meet polyhedra[j] eq polyhedra[i]*/ contained(polyhedra[i],polyhedra[j]) then
         if verbose then "polyhedron", i, "is contained in polyhedron", j; end if;
         Include(~exclude,i);
         continue i;
@@ -313,7 +321,8 @@ function union_decompose(polyhedra: verbose := false, silent := false, skip_incl
   tld := Dual(tl);
   if verbose then "finding pairs that intersect"; end if;
   // really we only care if the intersection has positive volume
-  bad_pairs := {@s: s in Subsets({1..#polyhedra},2)|Dimension(&meet [polyhedra[i]: i in s]) eq dim@};
+  // bad_pairs := {@s: s in Subsets({1..#polyhedra},2)|Dimension(&meet [polyhedra[i]: i in s]) eq dim@};
+  bad_pairs := {@s: s in Subsets({1..#polyhedra},2)|overlap_old(polyhedra[Min(s)],polyhedra[Max(s)],dim)@};
   if verbose then "computing volumes"; end if;
   vols := [Volume(i): i in polyhedra];
   ct := 0;
@@ -325,7 +334,8 @@ function union_decompose(polyhedra: verbose := false, silent := false, skip_incl
     maxv := rep{x: x in pair|x ne minv};
     // try the easy case where one polyhedron is contained in the other;
     // we can just ignore it (but now this shouldn't happen)
-    if &meet [polyhedra[i]: i in pair] eq polyhedra[minv] then
+    // if &meet [polyhedra[i]: i in pair] eq polyhedra[minv] then
+    if contained(polyhedra[minv],polyhedra[maxv]) then
       "one polytope is contained in another; possible bug?";
       Remove(~polyhedra,minv);
       Remove(~vols,minv);
@@ -351,7 +361,8 @@ function union_decompose(polyhedra: verbose := false, silent := false, skip_incl
     // If one of the pieces of the larger polyhedron is contained in another
     // one, we don't need it.
     if verbose then "removing parts contained in another polyhedron"; end if;
-    dec_pair := [x: x in dec_pair|forall{p: p in polyhedra|x meet p ne x}];
+    // dec_pair := [x: x in dec_pair|forall{p: p in polyhedra|x meet p ne x}];
+    dec_pair := [x: x in dec_pair|forall{p: p in polyhedra|not contained(x,p)}];
     Remove(~vols,maxv);
     // now we maintain our list of pairs with maximal-dimensional intersection
     // by removing the polyhedron we just removed ....
@@ -359,9 +370,125 @@ function union_decompose(polyhedra: verbose := false, silent := false, skip_incl
     if verbose then "determining which new polytopes have maximal intersection dimension with others"; end if;
     // .... and adding the pairs that include one of our new polyhedra
     // (it can't be both).
-    bad_pairs join:= {@{i,#polyhedra+j}: i in [1..#polyhedra], j in [1..#dec_pair]|Dimension(polyhedra[i] meet dec_pair[j]) eq dim@};
+    // bad_pairs join:= {@{i,#polyhedra+j}: i in [1..#polyhedra], j in [1..#dec_pair]|Dimension(polyhedra[i] meet dec_pair[j]) eq dim@};
+    bad_pairs join:= {@{i,#polyhedra+j}: i in [1..#polyhedra], j in [1..#dec_pair]|overlap_old(polyhedra[i],dec_pair[j],dim)@};
     polyhedra cat:= dec_pair;
     vols cat:= [Volume(i): i in dec_pair];
+    if verbose or (not silent and ct mod 10 eq 0) then printf "done %o reductions, currently %o polyhedr%o and %o bad pair%o\n", ct, #polyhedra, (#polyhedra eq 1 select "on" else "a"), #bad_pairs, (#bad_pairs eq 1 select "" else "s"); end if;
+  end while;
+  // Magma takes the volume of the unit simplex to be 1.
+  ans := &+vols/Factorial(dim);
+  return ans,ct,polyhedra;
+end function;
+
+// new version: we keep the intersections around when we make the list of
+// bad pairs, and subsequently refine it by intersecting with half-spaces.
+
+function union_decompose(polyhedra: verbose := false, silent := false, skip_incl := false)
+  if #polyhedra eq 0 then return 0,0,[]; end if;
+  dim := #Eltseq(Rep(Vertices(polyhedra[1])));
+  if exists{p: p in polyhedra|Dimension(p) lt dim} then
+    if not silent then "warning: polytope of lower dimension"; end if;
+    polyhedra := [x: x in polyhedra|Dimension(x) eq dim];
+  end if;
+  if #polyhedra eq 0 then return 0,0,[]; end if;
+  if verbose then "sorting by volume"; end if;
+  Sort(~polyhedra,func<x,y|Volume(x)-Volume(y)>);
+  // #polyhedra, "polyhedra";
+  if not silent and not skip_incl then "removing polyhedra contained in others"; end if;
+  exclude := {@@};
+  // we could also notice that if P is contained in Q but not R, then Q
+  // is not contained in R.  But I'm not sure it's worth the trouble.
+  if not skip_incl then
+    for i in [1..#polyhedra], j in [#polyhedra..i+1 by -1] do
+      if verbose and j eq #polyhedra then "starting polyhedron", i; end if;
+      // we don't need to check polyhedra contained in another;
+      // anything contained in the smaller one is contained in the larger
+      // they automatically come in order now
+      if j notin exclude and i ne j and /*polyhedra[i] meet polyhedra[j] eq polyhedra[i]*/ contained(polyhedra[i],polyhedra[j]) then
+        if verbose then "polyhedron", i, "is contained in polyhedron", j; end if;
+        Include(~exclude,i);
+        continue i;
+      end if;
+    end for;
+  end if;
+  polyhedra := [polyhedra[i]: i in [1..#polyhedra]|i notin exclude];
+  if not silent then "finished with inclusions:", #polyhedra, (#polyhedra eq 1 select "polyhedron left" else "polyhedra left"); end if;
+  /*while exists(i){i: i,j in [1..#polyhedra]|i ne j and polyhedra[i] meet polyhedra[j] eq polyhedra[i]} do
+    Remove(~polyhedra,i);
+  end while;*/
+  // this is the ambient toric lattice, which we use to make inequalities
+  tl := Universe(Vertices(polyhedra[1]));
+  tld := Dual(tl);
+  if verbose then "finding pairs that intersect"; end if;
+  // really we only care if the intersection has positive volume
+  // bad_pairs := {@s: s in Subsets({1..#polyhedra},2)|Dimension(&meet [polyhedra[i]: i in s]) eq dim@};
+  // bad_pairs := {@s: s in Subsets({1..#polyhedra},2)|overlap_old(polyhedra[Min(s)],polyhedra[Max(s)],dim)@};
+  bad_pairs := {@@};
+  for s in Subsets({1..#polyhedra},2) do
+    mi := &meet [polyhedra[i]: i in s];
+    if Dimension(mi) eq dim then
+      Include(~bad_pairs,<s,mi>);
+    end if;
+  end for;
+  
+  if verbose then "computing volumes"; end if;
+  vols := [Volume(i): i in polyhedra];
+  ct := 0;
+  if not silent then "starting with", #polyhedra, "polytopes with", #bad_pairs, "intersecting pairs"; end if;
+  while #bad_pairs gt 0 do
+    ct +:= 1;
+    pair := bad_pairs[#bad_pairs];
+    minv := (vols[Min(pair[1])] ge vols[Max(pair[1])] select Min(pair[1]) else Max(pair[1]));
+    maxv := rep{x: x in pair[1]|x ne minv};
+    // try the easy case where one polyhedron is contained in the other;
+    // we can just ignore it (but now this shouldn't happen)
+    // if &meet [polyhedra[i]: i in pair[1]] eq polyhedra[minv] then
+    if contained(polyhedra[minv],polyhedra[maxv]) then
+      "one polytope is contained in another; possible bug?";
+      Remove(~polyhedra,minv);
+      Remove(~vols,minv);
+      bad_pairs := {@<{i gt minv select i-1 else i: i in p[1]},p[2]>: p in bad_pairs|minv notin p[1]@};
+      continue;
+    end if;
+    if verbose then "choosing a face of the smaller one that cuts the larger one"; end if;
+    faces := Facets(polyhedra[minv]); // codimension-1 faces
+    // construct the half-spaces into which each face separates space
+    vss := [[Vector(Eltseq(i)): i in Vertices(f)]: f in faces];
+    kers := [Kernel(Transpose(Matrix([v-vs[1]: v in vs]))): vs in vss];
+    assert forall{k: k in kers|Dimension(k) eq 1};
+    cs := [{&+[(kers[i].1)[j]*v[j]: j in [1..dim]]: v in vss[i]}: i in [1..#vss]];
+    assert forall{c: c in cs|#c eq 1};
+    halfpairs := [[HalfspaceToPolyhedron(tld!Eltseq(kers[i].1),Rep(cs[i])),HalfspaceToPolyhedron(tld!Eltseq(-kers[i].1),-Rep(cs[i]))]: i in [1..#faces]];
+    // if no hyperplane extending a face cuts the other one into two
+    // pieces of equal dimension, they don't intersect
+    // Should I try to break these in some clever way, such as making
+    // the volumes close?  Or should I try to have one of the parts
+    // contained in another polyhedron?  Maybe it doesn't matter much.
+    dec_pair := rep{[<polyhedra[maxv] meet h,h>: h in half]: half in halfpairs|forall{h: h in half|exists{v: v in Vertices(polyhedra[maxv])|&+[Eltseq(e[1])[i]*Eltseq(v)[i]: i in [1..dim]] gt e[2]} where e is Inequalities(h)[1]}};
+    Remove(~polyhedra,maxv);
+    Remove(~vols,maxv);
+    // If one of the pieces of the larger polyhedron is contained in another
+    // one, we don't need it.
+    if verbose then "removing parts contained in another polyhedron"; end if;
+    // dec_pair := [x: x in dec_pair|forall{p: p in polyhedra|x meet p ne x}];
+    dec_pair := [x: x in dec_pair|forall{p: p in polyhedra|not contained(x[1],p)}];
+    // now we maintain our list of pairs with maximal-dimensional intersection
+    // by removing the polyhedron we just removed ....
+    new_bad_pairs := {@<{i gt maxv select i-1 else i: i in p[1]},p[2]>: p in bad_pairs|maxv notin p[1]@};
+    if verbose then "determining which new polytopes have maximal intersection dimension with others"; end if;
+    // .... and adding the pairs that include one of our new polyhedra
+    // (it can't be both).
+    // bad_pairs join:= {@{i,#polyhedra+j}: i in [1..#polyhedra], j in [1..#dec_pair]|Dimension(polyhedra[i] meet dec_pair[j]) eq dim@};
+    for i in bad_pairs do
+      if maxv in i[1] then
+        new_bad_pairs join:= {@<{rep{(x gt maxv select x-1 else x): x in i[1]|x ne maxv},#polyhedra+j},i[2] meet dec_pair[j,2]>: j in [1..#dec_pair]|exists{v: v in Vertices(i[2])|&+[Eltseq(e[1])[n]*Eltseq(v)[n]: n in [1..dim]] gt e[2]} where e is Inequalities(dec_pair[j,2])[1]@};
+      end if;
+    end for;
+    bad_pairs := new_bad_pairs;
+    
+    polyhedra cat:= [x[1]: x in dec_pair];
+    vols cat:= [Volume(i[1]): i in dec_pair];
     if verbose or (not silent and ct mod 10 eq 0) then printf "done %o reductions, currently %o polyhedr%o and %o bad pair%o\n", ct, #polyhedra, (#polyhedra eq 1 select "on" else "a"), #bad_pairs, (#bad_pairs eq 1 select "" else "s"); end if;
   end while;
   // Magma takes the volume of the unit simplex to be 1.
