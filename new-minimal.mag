@@ -214,6 +214,7 @@ function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent
   if not silent then
     max_layer := rep{x: x in [1..50000]|IsEmpty(pol meet tr_bd(x)[1])};
     "maximum layer:", max_layer;
+  else max_layer := 0;
   end if;
   while #pols gt 0 do
     // now we keep it sorted
@@ -222,7 +223,7 @@ function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent
       count := 0;
       layer +:= 1;
       if not silent then 
-        printf "starting layer %o with %o point%o found so far and %o polyhedr%o left of total volume %o and maximal volume %o\n", layer, #mpts, #mpts eq 1 select "" else "s", #pols, #pols eq 1 select "on" else "a", &+[R10|Volume(i[1]): i in pols|not IsEmpty(i[1]) and Dimension(i[1]) eq Degree(nf)], R10!Max([0] cat [Volume(i[1]): i in pols|Dimension(i[1]) eq Degree(nf)]);
+        printf "starting layer %o (max %o) with %o point%o found so far and %o polyhedr%o left of total volume %o and maximal volume %o\n", layer, max_layer, #mpts, #mpts eq 1 select "" else "s", #pols, #pols eq 1 select "on" else "a", &+[R10|Volume(i[1]): i in pols|not IsEmpty(i[1]) and Dimension(i[1]) eq Degree(nf)], R10!Max([0] cat [Volume(i[1]): i in pols|Dimension(i[1]) eq Degree(nf)]);
       end if;
     end if;
     count +:= 1;
@@ -300,7 +301,7 @@ function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent
       test_pol := func<x|Volume(x[1]) ge threshold and ((Dimension(x[1]) eq d and tl!Eltseq(ipt) in x[1]) or (x[1] eq npol meet tb[3]) or (Volume(x[1]) gt &+[Volume(i[1]): i in pols]/threshold))>;
       split_pols := [x: x in pols|test_pol(x)];
       pols := [x: x in pols|not test_pol(x)];
-      if verbose then "splitting", #split_pols, "polyhedra"; end if;
+      if verbose then printf "splitting %o polyhedr%\n", #split_pols, (#split_pols eq 1 select "on" else "a"); end if;
       splits := Setseq({@<p[1] meet (t+tl!Eltseq(ipt)),p[2]>: p in split_pols, t in duals[d_ind]@});
       Sort(~splits,compare);
       keep := [x: x in [1..#splits]|not test_in(splits[x],pols cat Remove(splits,x))];
@@ -368,7 +369,7 @@ end function;
 // Generalized to work when the ideal is not the full maximal order.
 // The polyhedra are in coordinates given by the basis of the ideal
 // (which defaults to 1*O if not specified).
-function make_pols(nf: id := false)
+function make_pols(nf: id := false, verbose := false, silent := false)
   tpu,unit_list,bk,units_bk := unit_data(nf);
   tmc := trace_minimal_cone(units_bk);
   mo := MaximalOrder(nf);
@@ -382,27 +383,40 @@ function make_pols(nf: id := false)
   ineqs_prod := [<[-Trace(bas[i]*r): i in [1..d]],-min*Trace(r)>: r in tmc_mo];
   hyp_rays := [PolyhedronWithInequalities([x[1]],[x[2]]): x in ineqs_prod];
   
+  // try to balance the number of walls
+  res := Real(Evaluate(LSeries(nf),1+10^-10)/10^10);
+  nc := NarrowClassNumber(nf);
+  nu := #small_units(nf,tpu,1);
+  sc := nc/(nu^0.5*res);
+
   k := 0;
   sus0 := {@@};
   pol0 := PolyhedronWithInequalities([[Trace(bas[i]): i in [1..d]]],[0]);
+  stop_set := false; stop := 0;
   // We create a cone that contains the totally positive cone by requiring that
   // the products with a lot of totally positive elements have positive trace.
   repeat
     k +:= 1;
-    tps := {@minimize(x,tmc,unit_list,units_bk): x in tp_to_n(nf,100*k,tmc,unit_list,units_bk)@};
+    tps := {@minimize(x,tmc,unit_list,units_bk): x in tp_to_n(nf,Ceiling(50*k*sc),tmc,unit_list,units_bk)@};
     units_k := small_units(nf,tpu,k);
     // [&*[tpu[i]^v[i]: i in [1..d-1]]: v in CartesianPower({-k..k},d-1)];
     sus := {@s*u: s in tps, u in units_k@};
-    sus := get_minimal_3(Sort(sus,func<x,y|Trace(x)-Trace(y)>)) diff sus0;
+    sus := Sort(get_minimal_3(sus),func<x,y|Trace(x)-Trace(y)>) diff sus0;
     sus0 join:= sus;
     ineqs_u := [<[Trace(su*bas[i]): i in [1..d]],0>: su in sus];
-    stop_set := false; stop := 0;
-    for i in [2..Ceiling(#ineqs_u/10)] do
+    for i in ineqs_u do
+      pol0 meet:= HalfspaceToPolyhedron(i[1],i[2]);
+      if verbose then printf "."; end if;
+      if Index(ineqs_u,i) mod 10 eq 0 and not silent then
+        printf "%o ", #Facets(pol0);
+      end if;
+      /*
+      for i in [1..Ceiling(#ineqs_u/10)] do
       pol0 meet:= PolyhedronWithInequalities(r,[0^^#r]) where r is [x[1]: x in ineqs_u[10*i-9..Min(10*i,#ineqs_u)]];
-      printf "%o ", #Facets(pol0);
+      printf "%o ", #Facets(pol0);*/
       // But we have to make sure that it gives us proper polyhedra.
       if forall{h: h in hyp_rays|IsPolytope(pol0 meet h)} and not stop_set then
-        printf "stopping soon ... "; stop := i+10; stop_set := true;
+        printf "stopping soon ... "; stop_set := true; // stop := i+10; 
       end if;
       // if i eq stop then break i; end if;
     end for;
