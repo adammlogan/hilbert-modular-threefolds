@@ -404,6 +404,7 @@ function make_pols(nf: id := false, verbose := false, silent := false)
     sus := Sort(get_minimal_3(sus),func<x,y|Trace(x)-Trace(y)>) diff sus0;
     sus0 join:= sus;
     ineqs_u := [<[Trace(su*bas[i]): i in [1..d]],0>: su in sus];
+    if verbose then printf "introducing %o inequalities: ", #sus; end if;
     for i in ineqs_u do
       pol0 meet:= HalfspaceToPolyhedron(i[1],i[2]);
       if verbose then printf "."; end if;
