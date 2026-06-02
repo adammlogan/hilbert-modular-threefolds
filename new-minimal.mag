@@ -165,7 +165,7 @@ end procedure;
 
 // Another new idea: use LLL to try to orient the polyhedron with the lattice
 // Note that this assumes we have a simplex
-function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent := false, id := false, threshold := 100, known_id_pts := {@@}, lll_threshold := 1, use_lll := (#Vertices(pol) eq Dimension(pol)+1 and Volume(pol) le lll_threshold))
+function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent := false, id := false, threshold := 100, known_id_pts := {@@}, lll_threshold := 1, use_lll := (#Vertices(pol) eq Dimension(pol)+1 and Volume(pol) le lll_threshold), use_recursion := true)
   if not silent then "--- entering new_minimal_pts"; end if;
   if use_lll then
     if not silent then "using lll to improve the basis"; end if;
@@ -173,7 +173,8 @@ function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent
     lat := LatticeWithBasis(Transpose(Matrix([Eltseq(i): i in Vertices(pol)|i ne Parent(i)!0])));
     lll,lllto := LLL(lat);
     assert ChangeRing(lllto,Q)*Matrix(Basis(lat)) eq Matrix(Basis(lll));
-    pol := Polyhedron(Append([Eltseq(i): i in Rows(Transpose(Matrix(Basis(lll))))],[0^^Dimension(pol)]));
+    // pol := Polyhedron(Append([Eltseq(i): i in Rows(Transpose(Matrix(Basis(lll))))],[0^^Dimension(pol)]));
+    pol := pol0*Transpose(lllto);
     _,topol0 := IsIsomorphic(pol,pol0);
     _,topol := IsIsomorphic(pol0,pol);
     // !!! need to make sure this is right
@@ -242,6 +243,11 @@ function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent
       Remove(~pols,mdv);
       if verbose then "removing empty polyhedron,", #pols, "left"; end if;
       npts := {@@};
+    elif Dimension(pols[mdv,1]) lt d and use_recursion then
+      if not silent then "applying lll in lower dimension"; end if;
+      lowerpol := pols[mdv,1];
+      Remove(~pols,mdv);
+      npts := {@Eltseq(i): i in new_minimal_pts(lowerpol,tpc_faces,nf,duals,tmc_mo: verbose := verbose, silent := silent, id := id, threshold := threshold, lll_threshold := lll_threshold, use_lll := true, use_recursion := false)@};
     // elif Dimension(npol) lt d or Volume(npol) lt threshold then
     // elif Dimension(npol) eq 0 or (Dimension(npol) eq d and Volume(npol) lt threshold) then
     elif Volume(BoundingBox(npol)) lt threshold^d or (Dimension(npol) eq d and Volume(npol) lt threshold) then
@@ -350,6 +356,15 @@ function make_data(nf)
   return tpu,unit_list,bk,units_bk,tmc_mo,pc,faces,pols;
 end function;
 
+function small_units(nf,tpu,k)
+  rp := RealPlaces(nf);
+  lat := LatticeWithBasis(Matrix([[Log(Evaluate(i,r)): r in rp]: i in tpu])); 
+  sv := ShortVectors(lat,1.1*k*Max([Norm(e): e in Basis(lat)]));
+  cds := [Coordinates(lat,v[1]): v in sv];
+  uns := {@&*[(tpu[i]^c[i])^s: i in [1..#rp-1]]: s in [1,-1], c in cds@};
+  return uns;
+end function;
+
 // Generalized to work when the ideal is not the full maximal order.
 // The polyhedra are in coordinates given by the basis of the ideal
 // (which defaults to 1*O if not specified).
@@ -374,8 +389,9 @@ function make_pols(nf: id := false)
   // the products with a lot of totally positive elements have positive trace.
   repeat
     k +:= 1;
-    tps := {@minimize(x,tmc,unit_list,units_bk): x in tpu_to_n_m(nf,100*k,k,tmc,unit_list,units_bk)@};
-    units_k := [&*[tpu[i]^v[i]: i in [1..d-1]]: v in CartesianPower({-k..k},d-1)];
+    tps := {@minimize(x,tmc,unit_list,units_bk): x in tp_to_n(nf,100*k,tmc,unit_list,units_bk)@};
+    units_k := small_units(nf,tpu,k);
+    // [&*[tpu[i]^v[i]: i in [1..d-1]]: v in CartesianPower({-k..k},d-1)];
     sus := {@s*u: s in tps, u in units_k@};
     sus := get_minimal_3(Sort(sus,func<x,y|Trace(x)-Trace(y)>)) diff sus0;
     sus0 join:= sus;
@@ -388,7 +404,7 @@ function make_pols(nf: id := false)
       if forall{h: h in hyp_rays|IsPolytope(pol0 meet h)} and not stop_set then
         printf "stopping soon ... "; stop := i+10; stop_set := true;
       end if;
-      if i eq stop then break i; end if;
+      // if i eq stop then break i; end if;
     end for;
   until stop_set;
   printf "\n";
