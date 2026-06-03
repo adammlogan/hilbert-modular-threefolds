@@ -269,7 +269,11 @@ function new_minimal_pts(pol,tpc_faces,nf,duals,tmc_mo: verbose := false, silent
       pols[mdv,1] := npol meet tb[3];
       pols := Append(Remove(pols,mdv),pols[mdv]);*/
       slice := npol meet tb[2];
-      if verbose and not IsEmpty(slice) then "listing integral points in next slice of dimension", Dimension(slice), "and bounding box size", R5!Volume(BoundingBox(slice)); end if;
+      if verbose and not IsEmpty(slice) then
+        "listing integral points in next slice of dimension", Dimension(slice), "and bounding box size", R5!Volume(BoundingBox(slice));
+      elif verbose and IsEmpty(slice) then
+        "slice is empty";
+      end if;
       npts := [Eltseq(x): x in intpts(slice: use_normaliz := Dimension(npol) eq d)];
     end if;
     // if verbose and #npts gt 0 then printf "found %o point%o, breaking up\n", #npts, (#npts ne 1 select "s" else ""); end if;
@@ -381,6 +385,7 @@ function make_pols(nf: id := false, verbose := false, silent := false)
   tmc_mo := [mo!Eltseq(i): i in tmc2];
   ineqs_prod := [<[-Trace(bas[i]*r): i in [1..d]],-min*Trace(r)>: r in tmc_mo];
   hyp_rays := [PolyhedronWithInequalities([x[1]],[x[2]]): x in ineqs_prod];
+  rp := RealPlaces(nf);
   
   // try to balance the number of walls
   res := Real(Evaluate(LSeries(nf),1+10^-10)/10^10);
@@ -396,18 +401,44 @@ function make_pols(nf: id := false, verbose := false, silent := false)
   // the products with a lot of totally positive elements have positive trace.
   repeat
     k +:= 1;
-    tps := {@minimize(x,tmc,unit_list,units_bk): x in tp_to_n(nf,Ceiling(50*k*sc),tmc,unit_list,units_bk)@};
+    if not silent then "listing totally positive elements"; end if;
+    tps := {@minimize(x,tmc,unit_list,units_bk): x in tp_to_n(nf,Ceiling(100*k*sc),tmc,unit_list,units_bk)@};
     units_k := small_units(nf,tpu,k);
     // [&*[tpu[i]^v[i]: i in [1..d-1]]: v in CartesianPower({-k..k},d-1)];
     sus := {@s*u: s in tps, u in units_k@};
+    // really all we want is the rays of the cone
+    if not silent then "removing redundant totally positive elements"; end if;
     sus := Sort(get_minimal_3(sus),func<x,y|Trace(x)-Trace(y)>) diff sus0;
+    // let's get rid of some more
+    embs := [[Evaluate(i,r)^d/Norm(i): i in sus]: r in rp];
+    max_inds := [x where _,x is Max(i): i in embs];
+    mat := Matrix([Eltseq(sus[i]): i in max_inds]);
+    keep := [x: x in [1..#sus]|x in max_inds or exists{v: v in Eltseq(Solution(mat,Vector(Eltseq(sus[x]))))|v lt 0}];
     sus0 join:= sus;
+    susdrop := [sus[i]: i in [1..#sus]|i notin keep];
+    sus := [sus[i]: i in keep];
+
+    zs := 0;
+    if not silent then "trying harder"; end if;
+    repeat
+      rs := RandomSubset({1..#sus},d);
+      mat := Matrix([Eltseq(sus[i]): i in rs]);
+      if Rank(mat) lt d then continue; end if; // lazy--could try to remove
+      sols := [Solution(mat,Vector(Eltseq(i))): i in sus];
+      drop := #[x: x in sols|Min(Eltseq(x)) gt 0];
+      if verbose and (drop gt 0 or zs mod 10 eq 0) then printf "%o ", drop; end if;
+      if forall{i: i in sols|Min(Eltseq(i)) le 0} then zs +:= 1; else zs := 0; end if;
+      sus := [sus[i]: i in [1..#sus]|Min(Eltseq(sols[i])) le 0];
+    until zs eq 100;
+
+    // this should be few enough
+    // sus := [Eltseq(i): i in rays(Cone([Eltseq(s): s in sus]));
     ineqs_u := [<[Trace(su*bas[i]): i in [1..d]],0>: su in sus];
     if verbose then printf "introducing %o inequalities: ", #sus; end if;
     for i in ineqs_u do
       pol0 meet:= HalfspaceToPolyhedron(i[1],i[2]);
       if verbose then printf "."; end if;
-      if Index(ineqs_u,i) mod 10 eq 0 and not silent then
+      if (Index(ineqs_u,i) mod 10 eq 0 or i eq ineqs_u[#ineqs_u]) and not silent then
         printf "%o ", #Facets(pol0);
       end if;
       /*
@@ -420,6 +451,10 @@ function make_pols(nf: id := false, verbose := false, silent := false)
       end if;
       // if i eq stop then break i; end if;
     end for;
+    // if we want we can check that the dropped ones give nothing
+    // h1 := pol0 meet HalfspaceToPolyhedron([-Trace(i): i in bas],-1);  
+    // ineqs_u := [<[Trace(su*bas[i]): i in [1..d]],0>: su in sus_drop];
+    // assert forall{x: x in ineqs_u, v in Vertices(h1)|0*v eq v or &+[x[1,i]*Eltseq(v)[i]: i in [1..d]] gt 0};
   until stop_set;
   printf "\n";
   

@@ -34,6 +34,7 @@ function genus_cl_reps(nf)
   return genus_reps, cl_reps;
 end function;
 
+// silent := false; verbose := false; threshold := 100; lll_threshold := 100;
 function test_nf(nf: use_tri := true, threshold := 100, lll_threshold := 100, verbose := false, silent := false)
   "starting field defined by", DefiningPolynomial(nf);
   fail := false;
@@ -50,7 +51,7 @@ function test_nf(nf: use_tri := true, threshold := 100, lll_threshold := 100, ve
     for id in ps do
       "considering cusp", Index(ps,id);
       min := Minimum(id);
-      pols0,tmc_mo := make_pols(nf: id := id);
+      pols0,tmc_mo := make_pols(nf: id := id, verbose := verbose, silent := silent);
       if use_tri then
         "triangulating";
         pols := [triangulate(i): i in pols0];
