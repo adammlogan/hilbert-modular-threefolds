@@ -372,7 +372,7 @@ end function;
 // Generalized to work when the ideal is not the full maximal order.
 // The polyhedra are in coordinates given by the basis of the ideal
 // (which defaults to 1*O if not specified).
-function make_pols(nf: id := false, verbose := false, silent := false)
+function make_pols(nf: id := false, verbose := false, silent := false, min_effort := 1)
   tpu,unit_list,bk,units_bk := unit_data(nf);
   tmc := trace_minimal_cone(units_bk);
   mo := MaximalOrder(nf);
@@ -455,7 +455,7 @@ function make_pols(nf: id := false, verbose := false, silent := false)
     // h1 := pol0 meet HalfspaceToPolyhedron([-Trace(i): i in bas],-1);  
     // ineqs_u := [<[Trace(su*bas[i]): i in [1..d]],0>: su in sus_drop];
     // assert forall{x: x in ineqs_u, v in Vertices(h1)|0*v eq v or &+[x[1,i]*Eltseq(v)[i]: i in [1..d]] gt 0};
-  until stop_set;
+  until stop_set and k ge min_effort;
   printf "\n";
   
   pols := [pol0 meet h: h in hyp_rays];
